@@ -611,7 +611,7 @@ details.evgrp summary{-webkit-tap-highlight-color:transparent}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-06p · 目前檔不再亂跳';
+const APP_VER='2026-11-07a · 檔期刪除·清單帶倉庫庫存';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -985,6 +985,18 @@ function archiveEvent(ev){
 function unarchiveEvent(ev){
   ev.status='active'; saveEvent(ev); toast('已改回進行中'); openEventEditor(ev);
 }
+function deleteEvent(ev){
+  const oc=evOrderCount(ev.id);
+  const msg='確定刪除檔期「'+ev.name+'」?\n'+
+    (oc>0?('這一檔有 '+oc+' 張訂單；刪除後訂單仍可查看,但會變成「未分檔期」。\n'):'')+
+    '此動作無法復原。';
+  if(!confirm(msg)) return;
+  S.events=S.events.filter(e=>e.id!==ev.id);
+  if(S.settings.curEvent===ev.id) S.settings.curEvent='';
+  save(); ensureCurEvent(); draft=newDraft();
+  if(typeof Sync!=='undefined'&&Sync.on) Sync.flush();   // 立刻把刪除同步出去
+  toast('已刪除檔期「'+ev.name+'」'); renderAdminList(); renderHome();
+}
 function openEventEditor(ev){
   const ro=ev.status==='done';   // 已歸檔 → 唯讀
   $('#adTitle').textContent=ev.name;
@@ -1036,12 +1048,15 @@ function openEventEditor(ev){
         ? `<button class="btn ghost wide" id="evUnarchive">改回進行中</button>`
         : `<button class="btn wide" id="evArchive" style="background:#8A6D3B">結束並歸檔這個檔期</button>
            <p class="note" style="margin-top:8px">歸檔後這一檔轉唯讀,訂單保留在歷史檔期可查看與重新匯出。</p>`}
+      <button class="btn danger wide sm" id="evDelete" style="margin-top:12px">刪除這個檔期</button>
+      <p class="note" style="margin-top:6px">刪除後無法復原;訂單會保留但變成「未分檔期」。</p>
     </div>
     <input type="file" id="evImgFile" accept="image/*" style="display:none">
     <input type="file" id="evCsvFile" accept=".csv,.xlsx,.xls,text/csv" style="display:none">
     <input type="file" id="evShelfFile" accept=".csv,.xlsx,.xls,text/csv" style="display:none">`;
   const reName=()=>{ $('#adTitle').textContent=ev.name; };
   $('#adBack').onclick=renderAdminList;
+  if($('#evDelete')) $('#evDelete').onclick=()=>deleteEvent(ev);
   if(ro){
     $('#evUnarchive').onclick=()=>unarchiveEvent(ev);
     renderListings(ev); return;
@@ -1334,6 +1349,7 @@ function shelfRows(matrix){
     row.forEach((h,j)=>{ const set=k=>{ if(m[k]==null) m[k]=j; };
       if(/^品項編碼$|^品號$|^料號$|^編碼$|^代碼$/.test(h)) set('code');
       else if(/^品項名稱$|^品名$|^名稱$/.test(h)) set('name');
+      else if(/倉庫|總庫存|現有庫存|可用庫存|合計庫存|帳上|在庫/.test(h)) set('wh');
       else if(/備貨|帶去|^數量$|^庫存$|每日限量|^限量$|上架數/.test(h)) set('qty');
       else if(/單價|售價|價格/.test(h)) set('price');
     });
@@ -1349,7 +1365,8 @@ function shelfRows(matrix){
     const code=cell(row,'code'); if(!code||!isProdCode(code)) continue;
     out.push({code,name:cell(row,'name'),
       qty:map.qty!=null?num(row[map.qty]):null,
-      price:map.price!=null?num(row[map.price]):null});
+      price:map.price!=null?num(row[map.price]):null,
+      wh:map.wh!=null?num(row[map.wh]):null});
   }
   return out;
 }
@@ -1418,6 +1435,7 @@ function openShelfConfirm(ev,matched,miss){
         ls.on=true;
         if(r.qty!=null){ if(isCup(p)) ls.daily=r.qty; else ls.cap=r.qty; }
         if(r.price!=null) ls.price=r.price;
+        if(r.wh!=null){ p.whQty=r.wh; p.ua=Date.now(); }   // 倉庫庫存→商品(同步)，供「倉庫可補」計算
       });
       if(replace) willOff.forEach(p=>{ const ls=ev.listings[p.code]; if(ls) ls.on=false; });
       saveEvent(ev); closeSheet(); renderListings(ev);
@@ -1433,10 +1451,12 @@ function downloadShelfTemplate(ev){
     return /[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
   const on=S.products.filter(p=>{ const ls=ev.listings[p.code]; return ls&&ls.on; });
   const base=on.length?on:S.products;
-  const rows=[['品號','品名','備貨量','售價'],
+  const rows=[['品號','品名','備貨量','售價','倉庫庫存'],
     ...base.map(p=>{ const ls=ev.listings[p.code]||{};
       const qty=isCup(p)?(ls.daily??''):(ls.cap??'');
-      return [dCode(p),p.name,qty===null?'':qty,(ls.price!=null&&ls.price!=='')?ls.price:(p.price||'')]; })];
+      return [dCode(p),p.name,qty===null?'':qty,
+        (ls.price!=null&&ls.price!=='')?ls.price:(p.price||''),
+        (p.whQty!=null&&p.whQty!=='')?p.whQty:'']; })];
   downloadBlob(new Blob(['﻿'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n')],
     {type:'text/csv;charset=utf-8'}),'上架清單範本.csv');
   toast('已下載範本，填好「品號」「備貨量」再上傳');
