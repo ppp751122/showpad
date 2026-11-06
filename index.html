@@ -401,8 +401,21 @@ table.prev td{padding:5px 8px;border:1px solid var(--chalk);white-space:nowrap}
   <div class="stksum" id="stkSum"></div>
   <div class="searchrow" style="top:calc(env(safe-area-inset-top,0px) + 88px)">
     <input type="text" id="qs" placeholder="搜尋品名或編碼" autocomplete="off"></div>
+  <div class="chips" id="itemMode">
+    <button class="chip on" data-m="event">本檔上架</button>
+    <button class="chip" data-m="all">全部商品</button>
+  </div>
   <div class="chips" id="chipsStock"></div>
-  <div class="wrap" style="padding-top:0"><div id="stockList"></div></div>
+  <div class="wrap" style="padding-top:0">
+    <div class="row" id="actAll" style="margin-bottom:12px;flex-wrap:wrap">
+      <button class="btn sm" id="btnAddProd">新增商品</button>
+      <button class="btn ghost sm" id="btnBulk">批次改預設價</button>
+      <button class="btn ghost sm" id="btnPasteProd">貼上匯入</button>
+      <button class="btn ghost sm" id="btnProdCsv">下載清單</button>
+    </div>
+    <div id="stockList"></div>
+    <div id="prodList"></div>
+  </div>
 </main>
 
 <!-- ===== 訂單 ===== -->
@@ -414,19 +427,6 @@ table.prev td{padding:5px 8px;border:1px solid var(--chalk);white-space:nowrap}
       <button class="btn ghost sm" id="btnMerge">合併其他裝置</button>
     </div>
     <div id="ordersList"></div>
-  </div>
-</main>
-
-<!-- ===== 商品 ===== -->
-<main id="v-products" class="hide">
-  <div class="wrap">
-    <div class="row" style="margin-bottom:12px;flex-wrap:wrap">
-      <button class="btn sm" id="btnBulk">批次改價</button>
-      <button class="btn ghost sm" id="btnAddProd">新增</button>
-      <button class="btn ghost sm" id="btnPasteProd">貼上匯入</button>
-      <button class="btn ghost sm" id="btnProdCsv">下載清單</button>
-    </div>
-    <div id="prodList"></div>
   </div>
 </main>
 
@@ -584,9 +584,8 @@ table.prev td{padding:5px 8px;border:1px solid var(--chalk);white-space:nowrap}
 <nav class="tabs">
   <button data-v="home" class="on"><svg viewBox="0 0 24 24"><path d="M4 20V9l8-6 8 6v11"/><path d="M9 20v-6h6v6"/></svg>首頁</button>
   <button data-v="order"><svg viewBox="0 0 24 24"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5"/><path d="M10 13h6M10 17h4"/></svg>點單</button>
-  <button data-v="stock"><svg viewBox="0 0 24 24"><path d="M4 8l8-4 8 4v8l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v8"/></svg>庫存</button>
+  <button data-v="stock"><svg viewBox="0 0 24 24"><path d="M4 8l8-4 8 4v8l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v8"/></svg>商品/庫存</button>
   <button data-v="orders"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>訂單<span class="dot hide" id="ordDot"></span></button>
-  <button data-v="products"><svg viewBox="0 0 24 24"><path d="M9 3h6v4l2 3v11H7V10l2-3z"/><path d="M7 14h10"/></svg>商品</button>
   <button data-v="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/></svg>設定</button>
 </nav>
 
@@ -609,7 +608,7 @@ table.prev td{padding:5px 8px;border:1px solid var(--chalk);white-space:nowrap}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-06h · 目前檔期自動跟最新';
+const APP_VER='2026-11-06i · 商品庫存合併頁';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -1373,7 +1372,7 @@ function remainSaved(p,date){
 const capOf=p=>isCup(p)?dailyOf(p):capBottle(p);
 
 /* ---------- 分頁 ---------- */
-const VIEWS=['home','order','stock','orders','products','settings'];
+const VIEWS=['home','order','stock','orders','settings'];
 function go(v){
   const b=$$('nav.tabs button').find(x=>x.dataset.v===v); if(b) b.click();
 }
@@ -1384,9 +1383,8 @@ $$('nav.tabs button').forEach(b=>b.onclick=()=>{
   $('#btnNewOrder').classList.toggle('hide',view!=='order');
   window.scrollTo(0,0);
   if(view==='home') renderHome();
-  if(view==='stock') renderStock();
+  if(view==='stock') renderItems();
   if(view==='orders') renderOrders();
-  if(view==='products') renderProducts();
   if(view==='settings') renderSettings();
   syncTotal();
 });
@@ -1987,8 +1985,23 @@ function qrSetup(){
 $('#btnQRSetup').onclick=qrSetup;
 
 /* =====================================================================
-   庫存查詢
+   商品／庫存（合併頁）
+   - 本檔上架：目前檔期上架品項 + 即時庫存（renderStock）
+   - 全部商品：完整商品目錄，可新增／改基本資料／匯入（renderProducts）
    ===================================================================== */
+let itemMode='event';
+function renderItems(){
+  if(!curEvent()) itemMode='all';   // 沒有進行中檔期時只能看全部商品
+  const ev=itemMode==='event';
+  $('#itemMode').querySelectorAll('.chip').forEach(b=>b.classList.toggle('on',b.dataset.m===itemMode));
+  $('#stkSum').classList.toggle('hide',!ev);
+  $('#chipsStock').classList.toggle('hide',!ev);
+  $('#actAll').classList.toggle('hide',ev);
+  $('#stockList').classList.toggle('hide',!ev);
+  $('#prodList').classList.toggle('hide',ev);
+  if(ev) renderStock(); else renderProducts();
+}
+$('#itemMode').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ itemMode=b.dataset.m; renderItems(); });
 function renderStock(){
   const today=draft.date||todayStr();
   // 瓶裝（依庫存）與 單杯（依每日上限）分開統計
@@ -2064,7 +2077,7 @@ function renderStock(){
      <button class="btn wide" id="btnRestock">補貨</button>`);
   $('#btnRestock').onclick=restock;
 }
-$('#qs').oninput=e=>{ qs=e.target.value; renderStock(); };
+$('#qs').oninput=e=>{ qs=e.target.value; renderItems(); };
 
 function restock(){
   const ev=curEvent();
@@ -2222,11 +2235,14 @@ function renderProducts(){
       '<div style="margin-bottom:16px">可以直接帶入內建品項，或用「貼上匯入」。</div>'+
       '<button class="btn" id="btnSeed">帶入內建品項</button></div>';
     $('#btnSeed').onclick=()=>{ S.products=catalogProducts(); save();
-      renderProducts(); renderChips(); renderGrid(); bulkEdit(); };
+      renderItems(); renderChips(); renderGrid(); bulkEdit(); };
     return;
   }
-  $('#prodList').innerHTML='<div class="card" style="padding:4px 14px">'+
-    S.products.map(p=>{
+  const kw=(qs||'').trim().toLowerCase();
+  const list=S.products.filter(p=>!kw||
+    (p.name+' '+p.code+' '+(p.brand||'')+' '+(p.spec||'')).toLowerCase().includes(kw));
+  $('#prodList').innerHTML=list.length?('<div class="card" style="padding:4px 14px">'+
+    list.map(p=>{
       const img=imgFor(p);
       const cap=capOf(p), r=cap==null?null:remainSaved(p,draft.date);
       return `<div class="item" data-code="${esc(p.code)}" style="cursor:pointer">
@@ -2237,7 +2253,7 @@ function renderProducts(){
           <span>${isCup(p)?(dailyOf(p)!=null?'每日 '+dailyOf(p):'單杯'):(p.pack||1)+'入'}${
             r!=null?' · 剩 '+r:''}</span></div>
       </div>`;
-    }).join('')+'</div>';
+    }).join('')+'</div>'):'<div class="empty">沒有符合的商品</div>';
   $('#prodList').querySelectorAll('.item[data-code]').forEach(r=>r.onclick=()=>editProduct(r.dataset.code));
 }
 $('#btnAddProd').onclick=()=>editProduct(null);
@@ -2328,14 +2344,14 @@ function editProduct(code){
       }else S.products.push(obj);
       if(newImg){ IMG[icode]=newImg; saveImgs(); }
       if(dropImg){ delete IMG[icode]; saveImgs(); }
-      save(); closeSheet(); renderProducts(); renderChips(); renderGrid(); toast('已儲存');
+      save(); closeSheet(); renderItems(); renderChips(); renderGrid(); toast('已儲存');
     };
     if($('#pDel')) $('#pDel').onclick=()=>{
       if(!confirm('刪除此商品？')) return;
       S.products=S.products.filter(x=>x.code!==code); delete IMG[code];
       save(); saveImgs();
       if(typeof Sync!=='undefined'&&Sync.on) Sync.flush();   // 立刻把刪除同步出去
-      closeSheet(); renderProducts(); renderChips(); renderGrid();
+      closeSheet(); renderItems(); renderChips(); renderGrid();
     };
   });
 }
@@ -2387,7 +2403,7 @@ function bulkEdit(){
         const p=S.products[+r.dataset.i];
         p.price=parseFloat(r.querySelector('[data-k=price]').value.trim())||0;
       });
-      save(); closeSheet(); renderProducts(); renderChips(); renderGrid(); syncTotal();
+      save(); closeSheet(); renderItems(); renderChips(); renderGrid(); syncTotal();
       toast('已儲存 '+S.products.length+' 項');
     };
   });
@@ -2450,7 +2466,7 @@ $('#btnPasteProd').onclick=()=>{
         const i=S.products.findIndex(x=>x.code===p.code);
         if(i>=0) S.products[i]=Object.assign(S.products[i],p); else S.products.push(p);
       });
-      save(); closeSheet(); renderProducts(); renderChips(); renderGrid();
+      save(); closeSheet(); renderItems(); renderChips(); renderGrid();
       toast('匯入 '+out.length+' 筆'+(map?'（依標題對應）':'（依欄位順序）'));
     };
   });
@@ -3194,9 +3210,8 @@ function refreshAll(){
   if($('#sheet').classList.contains('show')) { syncTotal(); return; }
   renderChips(); renderGrid(); syncTotal();
   if(view==='home') renderHome();
-  if(view==='stock') renderStock();
+  if(view==='stock') renderItems();
   if(view==='orders') renderOrders();
-  if(view==='products') renderProducts();
 }
 $('#btnSyncSave').onclick=async()=>{
   S.settings.room=$('#stRoom').value.trim();
