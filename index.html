@@ -1794,7 +1794,7 @@ function saveOrder(){
   let saved; const isNew=!draft.id;
   if(draft.id){ const ex=S.orders.find(x=>x.id===draft.id); Object.assign(ex,o); ex.ua=Date.now(); saved=ex; toast('訂單已更新'); }
   else{
-    o.code=genOrderCode();   // 給客人傳給 LINE 官方帳號查訂單用的 6 碼
+    o.code=genOrderCode();   // 給客人傳給 LINE 官方帳號查訂單用的 4 碼數字
     saved=Object.assign({id:(S.settings.device||'')+'-'+uid(),at:Date.now(),ua:Date.now()},o);
     S.orders.push(saved);
     toast(gaps.length?('已開單，但'+gaps.join('、')+'還沒填'):'已開單，可以接著點下一位客戶',gaps.length>0);
@@ -1803,15 +1803,17 @@ function saveOrder(){
   // 啟用 LINE 通知時，開完新單顯示訂單號與官方帳號 QR，讓業務引導客人
   if(isNew&&saved.code&&S.settings.lineNotify) showOrderDone(saved);
 }
-/* 6 碼大寫英數訂單號，排除易混淆字元，全域唯一 */
+/* 4 碼數字訂單號，全域唯一，現場好跟客人唸 */
 function genOrderCode(){
-  const abc='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // 去掉 0/O/1/I
+  // 隨機 4 碼數字（0000–9999），現場好跟客人唸；在所有訂單中確保不重複
   const used=new Set(S.orders.map(o=>o.code).filter(Boolean));
-  for(let t=0;t<50;t++){
-    let c=''; for(let i=0;i<6;i++) c+=abc[Math.floor(Math.random()*abc.length)];
+  for(let t=0;t<80;t++){
+    const c=String(Math.floor(Math.random()*10000)).padStart(4,'0');
     if(!used.has(c)) return c;
   }
-  return 'X'+Date.now().toString(36).slice(-5).toUpperCase();
+  // 極端情況（已用掉很多號）：線性找最小的空號，保證仍是 4 碼
+  for(let n=0;n<10000;n++){ const c=String(n).padStart(4,'0'); if(!used.has(c)) return c; }
+  return String(Date.now()%10000).padStart(4,'0');
 }
 /* 開完單的完成畫面：訂單號 + 官方帳號 QR + 引導語 */
 function showOrderDone(o){
