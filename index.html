@@ -611,7 +611,7 @@ details.evgrp summary{-webkit-tap-highlight-color:transparent}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-06n · 上傳上架清單';
+const APP_VER='2026-11-06o · 上傳前先建檔期資料';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -1068,7 +1068,7 @@ function openEventEditor(ev){
   $('#evSearch').oninput=()=>renderListings(ev);
   $('#evImport').onclick=()=>$('#evCsvFile').click();
   $('#evCsvFile').onchange=e=>{ const f=e.target.files[0]; if(f) importEcount(ev,f); e.target.value=''; };
-  $('#evShelf').onclick=()=>$('#evShelfFile').click();
+  $('#evShelf').onclick=()=>startShelfUpload(ev);
   $('#evShelfFile').onchange=e=>{ const f=e.target.files[0]; if(f) importShelf(ev,f); e.target.value=''; };
   $('#evTpl').onclick=()=>downloadShelfTemplate(ev);
   $('#evArchive').onclick=()=>archiveEvent(ev);
@@ -1353,6 +1353,36 @@ function shelfRows(matrix){
       price:map.price!=null?num(row[map.price]):null});
   }
   return out;
+}
+/* 上傳前：檔期資料不齊（名稱／期間／場地）先請使用者填好，再開檔案選擇 */
+function startShelfUpload(ev){
+  const DEF=['新檔期','未命名檔期','新檔期（複本）'];
+  const need=!ev.name||DEF.includes(ev.name)||!ev.venue||!ev.date||!ev.dateEnd;
+  if(!need){ $('#evShelfFile').click(); return; }
+  openSheet('先建立檔期資料',`
+    <p class="note" style="margin-top:0">上傳上架清單前，先把這一檔的基本資料填好。</p>
+    <label class="f"><span>名稱</span>
+      <input id="svName" value="${esc(DEF.includes(ev.name)?'':(ev.name||''))}" placeholder="例：琴酒節"></label>
+    <div class="row" style="gap:8px">
+      <label class="f" style="flex:1"><span>起始日</span>
+        <input type="date" id="svDate" value="${esc(ev.date||'')}"></label>
+      <label class="f" style="flex:1"><span>結束日</span>
+        <input type="date" id="svDateEnd" value="${esc(ev.dateEnd||ev.date||'')}"></label>
+    </div>
+    <label class="f"><span>場地</span>
+      <input id="svVenue" value="${esc(ev.venue||'')}" placeholder="例：華山"></label>
+    <button class="btn wide" id="svGo" style="margin-top:4px">儲存並選擇清單檔</button>`,()=>{
+    $('#svGo').onclick=()=>{
+      const nm=$('#svName').value.trim(), d=$('#svDate').value.trim(),
+        de=$('#svDateEnd').value.trim(), vn=$('#svVenue').value.trim();
+      if(!nm){ toast('請填名稱',true); return; }
+      if(!d){ toast('請填起始日',true); return; }
+      if(!vn){ toast('請填場地',true); return; }
+      ev.name=nm; ev.date=d; ev.dateEnd=(de&&de>=d)?de:d; ev.venue=vn;
+      saveEvent(ev); closeSheet(); openEventEditor(ev);
+      $('#evShelfFile').click();   // 仍在這次點擊的手勢內，檔案選擇不會被擋
+    };
+  });
 }
 async function importShelf(ev,file){
   toast('讀取中…');
