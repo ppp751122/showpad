@@ -609,7 +609,7 @@ table.prev td{padding:5px 8px;border:1px solid var(--chalk);white-space:nowrap}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-06g · 單杯開關·倉庫可補';
+const APP_VER='2026-11-06h · 目前檔期自動跟最新';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -809,6 +809,20 @@ function custLabel(c){ return c?(c.name||(c.tax?'統編 '+c.tax:'未命名客戶
    ===================================================================== */
 const eventOf=id=>S.events.find(e=>e.id===id)||null;
 function curEvent(){ return eventOf(S.settings.curEvent); }
+/* 決定「目前點單檔期」：
+   - 已選的檔還在進行中 → 保留
+   - 還停在自動轉檔的「既有資料」而且已有自建檔期 → 跳到最近更新的那個
+   - 目前檔空白／不存在／已歸檔 → 用最近更新的進行中檔期 */
+function ensureCurEvent(){
+  const act=S.events.filter(e=>e.status!=='done').sort((a,b)=>(b.ua||0)-(a.ua||0));
+  let cur=eventOf(S.settings.curEvent);
+  if(cur&&cur.status==='done') cur=null;
+  if(cur&&cur.id==='ev-legacy'){ const real=act.filter(e=>e.id!=='ev-legacy');
+    if(real.length) cur=real[0]; }
+  if(!cur) cur=act[0]||null;
+  const id=cur?cur.id:'';
+  if(S.settings.curEvent!==id){ S.settings.curEvent=id; save(); }
+}
 function activeEvents(){ return S.events.filter(e=>e.status!=='done'); }
 /* 某檔某品項的上架設定（沒有就回 null） */
 function listingOf(ev,code){ return ev&&ev.listings?ev.listings[code]:null; }
@@ -932,7 +946,8 @@ function renderAdminList(){
     ${current.map(e=>evCard(e,false)).join('')||'<p class="note">目前沒有進行中的檔期。</p>'}
     ${history.length?`<div class="sec-h" style="margin-top:22px">歷史檔期（已歸檔）</div>
       ${history.map(e=>evCard(e,true)).join('')}`:''}`;
-  $('#adNew').onclick=()=>{ const e=newEvent(); saveEvent(e); openEventEditor(e); };
+  $('#adNew').onclick=()=>{ const e=newEvent(); saveEvent(e);
+    S.settings.curEvent=e.id; save(); openEventEditor(e); };
   $('#adBody').querySelectorAll('.evcard').forEach(card=>{
     const e=eventOf(card.dataset.ev);
     const on=(act,fn)=>{ const b=card.querySelector('[data-act='+act+']'); if(b) b.onclick=fn; };
@@ -3172,7 +3187,7 @@ const Sync={
       Sync.last[kind][k]=body;
     });
     Sync.applying=false;
-    if(changed){ Store.set(KEY_MAIN,S); refreshAll(); }
+    if(changed){ Store.set(KEY_MAIN,S); if(kind==='events') ensureCurEvent(); refreshAll(); }
   }
 };
 function refreshAll(){
@@ -3388,9 +3403,7 @@ async function boot(){
     });
     S.settings.migQty9=1; save();
   }
-  // 若目前點單檔期已被歸檔，清掉，避免點單指向唯讀檔
-  if(S.settings.curEvent){ const ce=eventOf(S.settings.curEvent);
-    if(ce&&ce.status==='done'){ S.settings.curEvent=''; save(); } }
+  ensureCurEvent();
   draft=newDraft(); boot2(); renderHome();
   if(!S.settings.me) showLogin();
   Sync.init();
