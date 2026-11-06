@@ -608,7 +608,7 @@ table.prev td{padding:5px 8px;border:1px solid var(--chalk);white-space:nowrap}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-06j · 關單杯則統計不計單杯';
+const APP_VER='2026-11-06k · 倉庫數字存商品可同步';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -865,7 +865,13 @@ function cloneListings(srcEv){
   return out;
 }
 /* ECOUNT 匯入的庫存參考（品號→合計庫存），只作上架時參考，不影響點單扣量 */
-function ecStock(code){ const m=S.settings.ecStock||{}; return m[code]; }
+/* ECOUNT 合計庫存（倉庫數字）：優先讀商品上的 whQty（會隨雲端同步，各台都看得到），
+   再退回舊的設定檔 ecStock（只在匯入的那台） */
+function ecStock(code){
+  const p=prodOf(code);
+  if(p&&p.whQty!=null&&p.whQty!=='') return Number(p.whQty);
+  const m=S.settings.ecStock||{}; return m[code];
+}
 
 /* ---------- 檔期切換（點單用） ---------- */
 function showEventSwitcher(){
@@ -1158,13 +1164,14 @@ async function importEcount(ev,file){
     let p=prodOf(r.code);
     if(!p){
       p={code:r.code,name:r.name||r.code,spec:r.spec||'',brand:r.brand||'',cat:r.cat||'',
-        pack:r.pack||1,price:0,stock:'',daily:'',imgurl:'',ua:Date.now()};
+        pack:r.pack||1,price:0,stock:'',daily:'',imgurl:'',whQty:r.total,ua:Date.now()};
       S.products.push(p); added++;
     }else{
       // 既有品項：只補空白欄，不覆蓋已設定的
       if(!p.cat&&r.cat) p.cat=r.cat;
       if(!p.brand&&r.brand) p.brand=r.brand;
       if(!p.spec&&r.spec) p.spec=r.spec;
+      p.whQty=r.total; p.ua=Date.now();   // 倉庫數字存到商品上，隨雲端同步到各台
     }
     found.push(p);
   });
@@ -3418,6 +3425,13 @@ async function boot(){
       });
     });
     S.settings.migQty9=1; save();
+  }
+  // 2.0：把舊的「設定檔倉庫數字」搬到商品上（whQty 會隨雲端同步，各台都看得到）
+  if(!S.settings.migWh10){
+    const m=S.settings.ecStock||{};
+    S.products.forEach(p=>{ if((p.whQty==null||p.whQty==='')&&m[p.code]!=null&&m[p.code]!==''){
+      p.whQty=Number(m[p.code]); p.ua=Date.now(); } });
+    S.settings.migWh10=1; save();
   }
   ensureCurEvent();
   draft=newDraft(); boot2(); renderHome();
