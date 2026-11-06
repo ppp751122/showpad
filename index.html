@@ -609,7 +609,7 @@ table.prev td{padding:5px 8px;border:1px solid var(--chalk);white-space:nowrap}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-06c · 4碼單號·開單彈窗';
+const APP_VER='2026-11-06d · 設為點單中·上架修正';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -910,7 +910,8 @@ function evCard(e,history){
         ? `<button class="btn sm" data-act="view">查看</button>
            <button class="btn ghost sm" data-act="export">重新匯出</button>
            <button class="btn ghost sm" data-act="copy">複製為新檔</button>`
-        : `<button class="btn sm" data-act="edit">進入設定</button>
+        : `${e.id===S.settings.curEvent?'':'<button class="btn cop sm" data-act="makecur">設為點單中</button>'}
+           <button class="btn sm" data-act="edit">進入設定</button>
            <button class="btn ghost sm" data-act="copy">複製為新檔</button>`}
     </div>
   </div>`;
@@ -938,6 +939,8 @@ function renderAdminList(){
       const ne=newEvent(e.name+'（複本）'); ne.ssEnabled=e.ssEnabled; ne.venue=e.venue;
       ne.listings=cloneListings(e); saveEvent(ne); toast('已複製上架與定價'); openEventEditor(ne);
     });
+    on('makecur',()=>{ S.settings.curEvent=e.id; save(); draft=newDraft();
+      toast('點單頁已切到「'+e.name+'」'); renderAdminList(); });
   });
   $('#adClose').onclick=closeAdmin;
 }
@@ -972,6 +975,11 @@ function openEventEditor(ev){
           <span style="flex:1">本檔有 S&amp;S 參展（首頁才會分創二十／S&amp;S）</span></label>
       </div>
     </div>
+    ${ro?'':`<div class="sec"><div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center;gap:10px">
+        <div class="note" style="margin:0;flex:1">點單頁現在顯示的檔期。設定好上架後，記得把點單切到這一檔。</div>
+        <button class="btn sm" id="evMakeCur" style="white-space:nowrap"></button>
+      </div></div></div>`}
     <div class="sec"><div class="sec-h">上架與定價</div>
       ${ro?'':`<div class="row" style="margin-bottom:10px;flex-wrap:wrap">
         <button class="btn sm" id="evImport">匯入 ECOUNT 庫存</button>
@@ -1002,6 +1010,14 @@ function openEventEditor(ev){
   bind('#evDate',v=>ev.date=v.trim());
   bind('#evVenue',v=>ev.venue=v.trim());
   $('#evSS').onchange=e=>{ ev.ssEnabled=e.target.checked; saveEvent(ev); };
+  const cb=$('#evMakeCur'); if(cb){
+    const paintCur=()=>{ const isCur=S.settings.curEvent===ev.id;
+      cb.textContent=isCur?'✓ 點單中':'設為點單中';
+      cb.className='btn sm'+(isCur?' ghost':' cop'); cb.disabled=isCur; };
+    paintCur();
+    cb.onclick=()=>{ S.settings.curEvent=ev.id; save(); draft=newDraft();
+      toast('點單頁已切到「'+ev.name+'」'); paintCur(); };
+  }
   $('#evBulk').onclick=()=>bulkAdjust(ev);
   $('#evAll').onclick=()=>{ setAllListed(ev,true); saveEvent(ev); renderListings(ev); };
   $('#evNone').onclick=()=>{ setAllListed(ev,false); saveEvent(ev); renderListings(ev); };
