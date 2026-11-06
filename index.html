@@ -609,7 +609,7 @@ table.prev td{padding:5px 8px;border:1px solid var(--chalk);white-space:nowrap}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-06e · 圖片白底';
+const APP_VER='2026-11-06f · 庫存改檔期設定';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -981,6 +981,7 @@ function openEventEditor(ev){
         <button class="btn sm" id="evMakeCur" style="white-space:nowrap"></button>
       </div></div></div>`}
     <div class="sec"><div class="sec-h">上架與定價</div>
+      <p class="note" style="margin:-4px 0 10px">每列三欄：勾選＝上架、中間＝<b>售價</b>、右邊＝<b>帶去庫存</b>（單杯為<b>每日限量</b>）。數量留空＝不追蹤庫存。</p>
       ${ro?'':`<div class="row" style="margin-bottom:10px;flex-wrap:wrap">
         <button class="btn sm" id="evImport">匯入 ECOUNT 庫存</button>
         <button class="btn ghost sm" id="evBulk">整檔調幅</button>
@@ -1042,23 +1043,33 @@ function renderListings(ev){
   el.innerHTML=list.map(p=>{
     const ls=ev.listings[p.code]||{on:false,price:''};
     const price=(ls.price!=null&&ls.price!=='')?ls.price:(p.price||'');
+    const cup=isCup(p);
+    const qv=cup?(ls.daily!=null&&ls.daily!==''?ls.daily:'')
+                :(ls.cap!=null&&ls.cap!==''?ls.cap:'');
     const st=ecStock(p.code);
     const img=ls.img||imgFor(p);
     return `<div class="lirow" data-code="${esc(p.code)}">
       <input type="checkbox" class="ck" ${ls.on?'checked':''}>
       <div class="nm"><b>${esc(p.name)}</b>
-        <small>${esc(dCode(p))}${isSS(p)?' · S&S':''}</small></div>
-      ${st!=null?`<span class="stk">庫${st}</span>`:''}
-      <input class="pr" type="number" inputmode="numeric" value="${esc(price)}" placeholder="價格">
+        <small>${esc(dCode(p))}${isSS(p)?' · S&S':''}${st!=null?' · 庫'+st:''}</small></div>
+      <input class="pr" type="number" inputmode="numeric" value="${esc(price)}" placeholder="價格" style="width:60px">
+      <input class="qt" type="number" inputmode="numeric" value="${esc(qv)}" placeholder="${cup?'每日':'帶去'}" style="width:58px">
       <button class="btn ghost sm" data-act="img" style="padding:6px 8px">${img?'改圖':'圖'}</button>
     </div>`;
   }).join('')||'<p class="note" style="padding:8px">沒有符合的品項。</p>';
   el.querySelectorAll('.lirow').forEach(r=>{
     const code=r.dataset.code;
+    const p=prodOf(code);
     const ls=ev.listings[code]||(ev.listings[code]={on:false,price:''});
     r.querySelector('.ck').onchange=e=>{ ls.on=e.target.checked; saveEvent(ev); };
     r.querySelector('.pr').onchange=e=>{
       const v=e.target.value.trim(); ls.price=v===''?'':Number(v);
+      if(v!==''&&ls.on!==true){ ls.on=true; r.querySelector('.ck').checked=true; }
+      saveEvent(ev);
+    };
+    r.querySelector('.qt').onchange=e=>{
+      const v=e.target.value.trim(); const val=v===''?'':(parseInt(v)||0);
+      if(p&&isCup(p)) ls.daily=val; else ls.cap=val;
       if(v!==''&&ls.on!==true){ ls.on=true; r.querySelector('.ck').checked=true; }
       saveEvent(ev);
     };
@@ -1186,6 +1197,9 @@ function openImportPicker(ev,prods,added){
       const p=prodOf(code); if(!p) return;
       const ls=ev.listings[code]||(ev.listings[code]={on:false,price:''});
       ls.on=true; if(ls.price===''||ls.price==null) ls.price=Number(p.price)||'';
+      // 瓶裝：帶去庫存沒設過時，用 ECOUNT 合計庫存當基準（可再改）
+      if(!isCup(p)&&(ls.cap==null||ls.cap==='')){ const s=ecStock(code);
+        if(s!=null&&s!=='') ls.cap=Number(s); }
       n++;
     });
     saveEvent(ev); toast('已上架 '+n+' 項'); openEventEditor(ev);
@@ -1294,35 +1308,45 @@ function orderTotals(o){
 }
 
 /* ---------- 庫存 ---------- */
+/* 數量（帶去庫存／每日限量）改讀「目前檔期」的上架設定 ls.cap／ls.daily */
+function curLs(p){ return listingOf(curEvent(), p&&p.code); }
+/* 單杯每日限量：讀目前檔期 */
+const dailyOf=p=>{ if(!p||!isCup(p)) return null; const ls=curLs(p);
+  return (ls&&ls.daily!==''&&ls.daily!=null)?Number(ls.daily):null; };
+/* 瓶裝帶去庫存：讀目前檔期 */
+const capBottle=p=>{ if(!p||isCup(p)) return null; const ls=curLs(p);
+  return (ls&&ls.cap!==''&&ls.cap!=null)?Number(ls.cap):null; };
+/* 售出數量只計「目前檔期」的訂單（帶去庫存一檔一檔獨立） */
 function soldQty(code,exDraft){
-  let n=0;
+  const ev=S.settings.curEvent; let n=0;
   S.orders.forEach(o=>{ if(exDraft&&o.id===draft.id) return;
+    if(ev&&o.eventId!==ev) return;
     o.lines.forEach(l=>{ if(l.code===code) n+=l.qty; }); });
   return n;
 }
 function soldOnDate(code,date,exDraft){
-  let n=0;
+  const ev=S.settings.curEvent; let n=0;
   S.orders.forEach(o=>{ if(o.date!==date) return; if(exDraft&&o.id===draft.id) return;
+    if(ev&&o.eventId!==ev) return;
     o.lines.forEach(l=>{ if(l.code===code) n+=l.qty; }); });
   return n;
 }
-const dailyOf=p=>(p&&p.daily!==''&&p.daily!=null)?Number(p.daily):null;
 /* 點單畫面用：扣掉目前這張未存的單 */
 function remainQty(p){
   const inDraft=(draft.lines[p.code]||{}).qty||0;
-  const d=dailyOf(p);
-  if(d!=null) return d-soldOnDate(p.code,draft.date,true)-inDraft;
-  if(p.stock===''||p.stock==null) return null;
-  return p.stock-soldQty(p.code,true)-inDraft;
+  if(isCup(p)){ const d=dailyOf(p); if(d==null) return null;
+    return d-soldOnDate(p.code,draft.date,true)-inDraft; }
+  const cap=capBottle(p); if(cap==null) return null;
+  return cap-soldQty(p.code,true)-inDraft;
 }
 /* 庫存查詢用：只看已開單 */
 function remainSaved(p,date){
-  const d=dailyOf(p);
-  if(d!=null) return d-soldOnDate(p.code,date||todayStr(),false);
-  if(p.stock===''||p.stock==null) return null;
-  return p.stock-soldQty(p.code,false);
+  if(isCup(p)){ const d=dailyOf(p); if(d==null) return null;
+    return d-soldOnDate(p.code,date||todayStr(),false); }
+  const cap=capBottle(p); if(cap==null) return null;
+  return cap-soldQty(p.code,false);
 }
-const capOf=p=>{ const d=dailyOf(p); return d!=null?d:((p.stock===''||p.stock==null)?null:p.stock); };
+const capOf=p=>isCup(p)?dailyOf(p):capBottle(p);
 
 /* ---------- 分頁 ---------- */
 const VIEWS=['home','order','stock','orders','products','settings'];
@@ -1976,7 +2000,7 @@ function renderStock(){
   $('#chipsStock').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ fStock=b.dataset.s; renderStock(); });
 
   const kw=qs.trim().toLowerCase();
-  const rows=S.products.filter(p=>{
+  const rows=pickerProducts().filter(p=>{
     if(kw&&!(p.name+' '+p.code+' '+(p.brand||'')+' '+(p.spec||'')).toLowerCase().includes(kw)) return false;
     if(fStock==='cup') return isCup(p);
     const cap=capOf(p); if(cap==null) return fStock==='';
@@ -2014,9 +2038,11 @@ function renderStock(){
 $('#qs').oninput=e=>{ qs=e.target.value; renderStock(); };
 
 function restock(){
-  if(!S.products.length){ toast('還沒有商品',true); return; }
+  const ev=curEvent();
+  const list=pickerProducts();
+  if(!list.length){ toast(ev?'目前檔期沒有上架品項':'還沒有商品',true); return; }
   const today=draft.date||todayStr();
-  const rows=S.products.map((p,i)=>{
+  const rows=list.map((p,i)=>{
     const cap=capOf(p), d=dailyOf(p);
     const r=cap==null?null:remainSaved(p,today);
     return `<div class="bulk" data-i="${i}">
@@ -2035,25 +2061,27 @@ function restock(){
     <div class="card" style="padding:2px 12px;margin-bottom:14px">${rows}</div>
     <button class="btn wide" id="rSave">確認補貨</button>`,()=>{
     $('#shBody').querySelectorAll('.bulk').forEach(r=>{
-      const p=S.products[+r.dataset.i];
+      const p=list[+r.dataset.i];
       r.querySelector('[data-k=case]').onclick=()=>{
         const el=r.querySelector('[data-k=add]');
-        el.value=(parseInt(el.value)||0)+(dailyOf(p)!=null?1:(p.pack||1));
+        el.value=(parseInt(el.value)||0)+(isCup(p)?1:(p.pack||1));
       };
     });
     $('#rSave').onclick=()=>{
+      if(!ev){ toast('請先選一個點單檔期再補貨',true); return; }
       let n=0,q=0;
       $('#shBody').querySelectorAll('.bulk').forEach(r=>{
-        const p=S.products[+r.dataset.i];
+        const p=list[+r.dataset.i];
         const v=parseInt(r.querySelector('[data-k=add]').value)||0;
         if(v>0){
-          if(dailyOf(p)!=null) p.daily=Number(p.daily)+v;
-          else p.stock=((p.stock===''||p.stock==null)?0:p.stock)+v;
+          const ls=ev.listings[p.code]||(ev.listings[p.code]={on:true,price:''});
+          if(isCup(p)) ls.daily=(Number(ls.daily)||0)+v;
+          else ls.cap=(Number(ls.cap)||0)+v;
           n++; q+=v;
         }
       });
       if(!n){ toast('沒有填任何補貨數量',true); return; }
-      save(); closeSheet(); renderStock(); renderGrid(); syncTotal();
+      saveEvent(ev); closeSheet(); renderStock(); renderGrid(); syncTotal();
       toast('已補貨 '+n+' 項，共 '+q);
     };
   });
@@ -2177,7 +2205,7 @@ function renderProducts(){
         <div class="t"><b>${esc(p.name)}</b>
           <em>${esc(dCode(p))}${p.brand?' · '+esc(p.brand):''}${p.spec?' · '+esc(p.spec):''}</em></div>
         <div class="r"><b>$${nf(p.price)}</b>
-          <span>${isCup(p)?(dailyOf(p)!=null?'每日 '+p.daily:'單杯'):(p.pack||1)+'入'}${
+          <span>${isCup(p)?(dailyOf(p)!=null?'每日 '+dailyOf(p):'單杯'):(p.pack||1)+'入'}${
             r!=null?' · 剩 '+r:''}</span></div>
       </div>`;
     }).join('')+'</div>';
@@ -2223,14 +2251,7 @@ function editProduct(code){
       <label class="f" style="flex:1"><span>每箱入數</span>
         <input type="number" inputmode="numeric" id="pPack" value="${p.pack||1}"></label>
     </div>
-    <div class="row" style="gap:8px">
-      <label class="f" style="flex:1"><span>帶去庫存（瓶）</span>
-        <input type="number" inputmode="numeric" id="pStock"
-               value="${p.stock===''||p.stock==null?'':p.stock}"></label>
-      <label class="f" style="flex:1"><span>每日限量（單杯用）</span>
-        <input type="number" inputmode="numeric" id="pDaily"
-               value="${p.daily===''||p.daily==null?'':p.daily}"></label>
-    </div>
+    <p class="note" style="margin:-2px 0 10px">庫存數量（帶去庫存／每日限量）改在<b>各檔期的「上架與定價」</b>裡設定，這裡只管商品基本資料。</p>
     <label class="f"><span>圖片網址</span>
       <input type="text" id="pUrl" value="${esc(p.imgurl||'')}" placeholder="https://..."></label>
     <button class="btn wide" id="pSave">儲存</button>
@@ -2264,12 +2285,11 @@ function editProduct(code){
           icode=entered+'-'+n;
         }
       }
-      const st=$('#pStock').value.trim(), dl=$('#pDaily').value.trim();
       const cat=catSel.value==='__other'?($('#pCatOther').value.trim()||'其他'):catSel.value;
       const obj={code:icode,name:$('#pName').value.trim()||ecode,spec:$('#pSpec').value.trim(),
         brand:$('#pBrand').value.trim(),cat,
         price:parseFloat($('#pPrice').value)||0,pack:parseInt($('#pPack').value)||1,
-        stock:st===''?'':(parseInt(st)||0),daily:dl===''?'':(parseInt(dl)||0),
+        stock:p.stock==null?'':p.stock,daily:p.daily==null?'':p.daily,
         imgurl:$('#pUrl').value.trim()};
       if(ecode&&ecode!==icode) obj.ecode=ecode; // 顯示品號與內部鍵不同時才記錄
       obj.ua=Date.now();                        // 蓋更新時間，保護同步不被雲端舊資料覆蓋
@@ -2314,15 +2334,14 @@ function bulkEdit(){
       <div class="bt"><b>${esc(p.name)}</b>
         <em>${esc(dCode(p))} · ${isCup(p)?'單杯':(p.spec||'')+' · '+(p.pack||1)+'入'}</em></div>
       <input type="number" inputmode="decimal" data-k="price" value="${p.price||''}" placeholder="0"
-             style="width:64px">
-      <input type="number" inputmode="numeric" data-k="cap"
-             value="${dailyOf(p)!=null?p.daily:(p.stock===''||p.stock==null?'':p.stock)}" placeholder="—">
+             style="width:80px">
     </div>`).join('');
-  openSheet('批次改價',`
+  openSheet('批次改預設價',`
     <p class="note" style="margin-top:0">
-      一次填完所有品項。右邊那欄：瓶裝填<b>帶去庫存</b>，單杯填<b>每日限量</b>。留空表示不追蹤。</p>
-    <button class="btn ghost sm wide" id="bPrices" style="margin-bottom:8px">帶入內建展場價與庫存</button>
-    <div class="bulkhead"><span>品項</span><span>${priceLbl}</span><span>庫存/限量</span></div>
+      這裡改的是商品的<b>預設單價</b>（檔期沒另外設價時沿用）。
+      各檔期的售價與<b>帶去庫存／每日限量</b>請到該檔的「上架與定價」裡設定。</p>
+    <button class="btn ghost sm wide" id="bPrices" style="margin-bottom:8px">帶入內建展場價</button>
+    <div class="bulkhead"><span>品項</span><span>${priceLbl}</span></div>
     <div class="card" style="padding:2px 12px;margin-bottom:14px">${rows}</div>
     <button class="btn wide" id="bSave">儲存全部</button>`,()=>{
     $('#bPrices').onclick=()=>{
@@ -2330,8 +2349,6 @@ function bulkEdit(){
       $('#shBody').querySelectorAll('.bulk').forEach(r=>{
         const cr=catalogRow(S.products[+r.dataset.i].code); if(!cr) return;
         r.querySelector('[data-k=price]').value=cr.price||'';
-        r.querySelector('[data-k=cap]').value=(cr.daily!==''&&cr.daily!=null)?cr.daily:
-          (cr.stock===''||cr.stock==null?'':cr.stock);
         n++;
       });
       toast(n?('已帶入 '+n+' 項，記得按儲存'):'沒有對應到內建品項',!n);
@@ -2340,9 +2357,6 @@ function bulkEdit(){
       $('#shBody').querySelectorAll('.bulk').forEach(r=>{
         const p=S.products[+r.dataset.i];
         p.price=parseFloat(r.querySelector('[data-k=price]').value.trim())||0;
-        const v=r.querySelector('[data-k=cap]').value.trim();
-        if(isCup(p)) p.daily=v===''?'':(parseInt(v)||0);
-        else p.stock=v===''?'':(parseInt(v)||0);
       });
       save(); closeSheet(); renderProducts(); renderChips(); renderGrid(); syncTotal();
       toast('已儲存 '+S.products.length+' 項');
@@ -2704,7 +2718,7 @@ function buildRows(dateFilter){
         REMARK_FULL:['單'+(dayNoMap[o.id]||''),payTxt?'付款：'+payTxt:'',o.remark||''].filter(Boolean).join('　'),
         SUMMARY:['單'+(dayNoMap[o.id]||''),payTxt?'付款：'+payTxt:'',o.remark||''].filter(Boolean).join('　'),
         P_CODE:exCode(pr), P_NAME:pr.name, P_SPEC:pr.spec||'', P_BRAND:pr.brand||'',
-        P_UNIT:unitOf(pr), P_STOCK:pr.stock===''||pr.stock==null?'':pr.stock,
+        P_UNIT:unitOf(pr), P_STOCK:(capBottle(pr)==null?'':capBottle(pr)),
         QTY_CASE:pack>1?Math.floor(l.qty/pack):0,
         QTY_BOTTLE:pack>1?l.qty%pack:l.qty,
         QTY_TOTAL:l.qty,
@@ -2717,8 +2731,9 @@ function buildRows(dateFilter){
   });
   Object.keys(used).forEach(code=>{
     const p=prodOf(code); if(!p) return;
-    if(dailyOf(p)==null&&p.stock!==''&&p.stock!=null&&used[code]>p.stock)
-      over.push(p.name+'（賣 '+used[code]+' / 庫存 '+p.stock+'）');
+    const capB=capBottle(p);
+    if(!isCup(p)&&capB!=null&&used[code]>capB)
+      over.push(p.name+'（賣 '+used[code]+' / 庫存 '+capB+'）');
   });
   Object.keys(usedDay).forEach(k=>{
     const [code,date]=k.split('|'); const p=prodOf(code); if(!p) return;
@@ -3348,6 +3363,16 @@ async function boot(){
       setTimeout(()=>toast('已清除 '+junk.length+' 筆非品項資料'),800);
     }
     S.settings.migClean8=1; save();
+  }
+  // 2.0：把商品上的帶去庫存／每日限量，一次搬進各檔期的上架設定（不覆蓋已設的）
+  if(!S.settings.migQty9){
+    S.events.forEach(e=>{ const ls=e.listings||(e.listings={});
+      S.products.forEach(p=>{ const l=ls[p.code]; if(!l) return;
+        if(isCup(p)){ if((l.daily==null||l.daily==='')&&p.daily!==''&&p.daily!=null) l.daily=Number(p.daily); }
+        else { if((l.cap==null||l.cap==='')&&p.stock!==''&&p.stock!=null) l.cap=Number(p.stock); }
+      });
+    });
+    S.settings.migQty9=1; save();
   }
   // 若目前點單檔期已被歸檔，清掉，避免點單指向唯讀檔
   if(S.settings.curEvent){ const ce=eventOf(S.settings.curEvent);
