@@ -608,7 +608,7 @@ table.prev td{padding:5px 8px;border:1px solid var(--chalk);white-space:nowrap}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-06i · 商品庫存合併頁';
+const APP_VER='2026-11-06j · 關單杯則統計不計單杯';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -1334,7 +1334,7 @@ function orderTotals(o){
 /* 數量（帶去庫存／每日限量）改讀「目前檔期」的上架設定 ls.cap／ls.daily */
 function curLs(p){ return listingOf(curEvent(), p&&p.code); }
 /* 單杯每日限量：讀目前檔期 */
-const dailyOf=p=>{ if(!p||!isCup(p)) return null; const ls=curLs(p);
+const dailyOf=p=>{ if(!p||!isCup(p)||!cupOnFor(curEvent())) return null; const ls=curLs(p);
   return (ls&&ls.daily!==''&&ls.daily!=null)?Number(ls.daily):null; };
 /* 瓶裝帶去庫存：讀目前檔期 */
 const capBottle=p=>{ if(!p||isCup(p)) return null; const ls=curLs(p);
@@ -2005,9 +2005,11 @@ $('#itemMode').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ itemMode=b.d
 function renderStock(){
   const today=draft.date||todayStr();
   // 瓶裝（依庫存）與 單杯（依每日上限）分開統計
+  const showCup=cupOnFor(curEvent());
   let bTot=0,bSold=0,bRem=0,bOut=0;   // 瓶裝
   let cTot=0,cSold=0,cRem=0,cOut=0;   // 單杯
   S.products.forEach(p=>{
+    if(isCup(p)&&!showCup) return;    // 本檔無單杯 → 不計
     const cap=capOf(p); if(cap==null) return;
     const r=remainSaved(p,today);
     if(isCup(p)){ cTot+=cap; cSold+=(cap-r); cRem+=r; if(r<=0) cOut++; }
@@ -2023,7 +2025,7 @@ function renderStock(){
         <div class="sc"><span>售完</span><b>${bOut}</b></div>
       </div>
     </div>
-    <div class="stkgrp">
+    ${showCup?`<div class="stkgrp">
       <div class="stkgrp-h">單杯（今日）</div>
       <div class="stkrow">
         <div class="sc"><span>可賣</span><b>${cTot}</b></div>
@@ -2031,8 +2033,7 @@ function renderStock(){
         <div class="sc big"><span>剩餘</span><b>${cRem}</b></div>
         <div class="sc"><span>售完</span><b>${cOut}</b></div>
       </div>
-    </div>`;
-  const showCup=cupOnFor(curEvent());
+    </div>`:''}`;
   if(!showCup&&fStock==='cup') fStock='';
   $('#chipsStock').innerHTML=[['','全部'],['have','還有貨'],['low','剩 1'],['out','已售完'],['cup','單杯']]
     .filter(([k])=>k!=='cup'||showCup)
