@@ -609,7 +609,7 @@ table.prev td{padding:5px 8px;border:1px solid var(--chalk);white-space:nowrap}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-06f · 庫存改檔期設定';
+const APP_VER='2026-11-06g · 單杯開關·倉庫可補';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -814,6 +814,8 @@ function activeEvents(){ return S.events.filter(e=>e.status!=='done'); }
 function listingOf(ev,code){ return ev&&ev.listings?ev.listings[code]:null; }
 /* 本檔是否顯示 S&S 分組：有檔期就看開關；沒檔期（剛遷移/空狀態）預設顯示 */
 function ssOnFor(ev){ return ev?!!ev.ssEnabled:true; }
+/* 本檔是否有單杯：舊檔（沒這欄位）預設有；新檔預設沒有，需手動開 */
+function cupOnFor(ev){ return ev?(ev.cupEnabled===undefined?true:!!ev.cupEnabled):true; }
 /* 某品項在「目前檔期」的售價：有上架且設了價就用該檔價，否則回目錄預設價 */
 function priceOf(p){
   if(!p) return 0;
@@ -831,12 +833,14 @@ function imgForEvt(p){
 function pickerProducts(){
   const ev=curEvent();
   if(!ev) return S.products.slice();
-  return S.products.filter(p=>{ const ls=ev.listings[p.code]; return ls&&ls.on; });
+  const cupOn=cupOnFor(ev);
+  return S.products.filter(p=>{ if(isCup(p)&&!cupOn) return false;
+    const ls=ev.listings[p.code]; return ls&&ls.on; });
 }
 function newEvent(name){
   const d=todayStr();
   return {id:'ev-'+uid(),name:name||'新檔期',date:d,venue:'',status:'active',
-    ssEnabled:false,listings:{},at:Date.now(),ua:Date.now()};
+    ssEnabled:false,cupEnabled:false,listings:{},at:Date.now(),ua:Date.now()};
 }
 function saveEvent(ev){ ev.ua=Date.now();
   if(!S.events.some(e=>e.id===ev.id)) S.events.push(ev); save(); }
@@ -936,7 +940,7 @@ function renderAdminList(){
     on('view',()=>openEventEditor(e));
     on('export',()=>{ closeAdmin(); go('orders'); exportSheet({eventId:e.id,name:e.name}); });
     on('copy',()=>{
-      const ne=newEvent(e.name+'（複本）'); ne.ssEnabled=e.ssEnabled; ne.venue=e.venue;
+      const ne=newEvent(e.name+'（複本）'); ne.ssEnabled=e.ssEnabled; ne.cupEnabled=cupOnFor(e); ne.venue=e.venue;
       ne.listings=cloneListings(e); saveEvent(ne); toast('已複製上架與定價'); openEventEditor(ne);
     });
     on('makecur',()=>{ S.settings.curEvent=e.id; save(); draft=newDraft();
@@ -973,6 +977,9 @@ function openEventEditor(ev){
         <label class="f" style="flex-direction:row;align-items:center;gap:10px">
           <input type="checkbox" id="evSS" ${ev.ssEnabled?'checked':''}${dis} style="width:22px;height:22px">
           <span style="flex:1">本檔有 S&amp;S 參展（首頁才會分創二十／S&amp;S）</span></label>
+        <label class="f" style="flex-direction:row;align-items:center;gap:10px">
+          <input type="checkbox" id="evCup" ${cupOnFor(ev)?'checked':''}${dis} style="width:22px;height:22px">
+          <span style="flex:1">本檔有單杯（現場調酒）；關掉後點單、庫存都不出現單杯</span></label>
       </div>
     </div>
     ${ro?'':`<div class="sec"><div class="card">
@@ -1011,6 +1018,7 @@ function openEventEditor(ev){
   bind('#evDate',v=>ev.date=v.trim());
   bind('#evVenue',v=>ev.venue=v.trim());
   $('#evSS').onchange=e=>{ ev.ssEnabled=e.target.checked; saveEvent(ev); };
+  $('#evCup').onchange=e=>{ ev.cupEnabled=e.target.checked; saveEvent(ev); renderListings(ev); };
   const cb=$('#evMakeCur'); if(cb){
     const paintCur=()=>{ const isCur=S.settings.curEvent===ev.id;
       cb.textContent=isCur?'✓ 點單中':'設為點單中';
@@ -1037,8 +1045,9 @@ function setAllListed(ev,on){
 }
 function renderListings(ev){
   const kw=($('#evSearch')?$('#evSearch').value:'').trim().toLowerCase();
-  const list=S.products.filter(p=>!kw||
-    (p.name+' '+p.code+' '+(p.brand||'')).toLowerCase().includes(kw));
+  const cupOn=cupOnFor(ev);
+  const list=S.products.filter(p=>(cupOn||!isCup(p))&&(!kw||
+    (p.name+' '+p.code+' '+(p.brand||'')).toLowerCase().includes(kw)));
   const el=$('#evListings');
   el.innerHTML=list.map(p=>{
     const ls=ev.listings[p.code]||{on:false,price:''};
@@ -1995,7 +2004,10 @@ function renderStock(){
         <div class="sc"><span>售完</span><b>${cOut}</b></div>
       </div>
     </div>`;
+  const showCup=cupOnFor(curEvent());
+  if(!showCup&&fStock==='cup') fStock='';
   $('#chipsStock').innerHTML=[['','全部'],['have','還有貨'],['low','剩 1'],['out','已售完'],['cup','單杯']]
+    .filter(([k])=>k!=='cup'||showCup)
     .map(([k,t])=>`<button class="chip${fStock===k?' on':''}" data-s="${k}">${t}</button>`).join('');
   $('#chipsStock').querySelectorAll('.chip').forEach(b=>b.onclick=()=>{ fStock=b.dataset.s; renderStock(); });
 
@@ -2023,7 +2035,9 @@ function renderStock(){
         <em>${esc(dCode(p))}${isCup(p)?' · 單杯':' · '+esc(p.spec||'')+' · '+(p.pack||1)+'入'}</em>
         ${cap==null?'<span class="brk">未設定庫存</span>'
           :`<span class="brk">${d!=null?'今日限量':'帶去'} ${cap}　已售 ${cap-r}${
-            inCart?'　本單 '+inCart:''}</span>`}</div>
+            inCart?'　本單 '+inCart:''}</span>`}${
+          (!isCup(p)&&ecStock(p.code)!=null)
+            ?`<span class="brk" style="opacity:.6">倉庫可補 ${Math.max(0,ecStock(p.code)-(capBottle(p)||0))}</span>`:''}</div>
       <div class="sn ${cls}"><b>${txt}</b><span>${cap!=null&&r<=0?'售完':unitOf(p)}</span></div>
     </div>`;
   }).join('')+'</div>'):'<div class="empty">沒有符合的品項</div>';
