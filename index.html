@@ -1800,8 +1800,8 @@ function saveOrder(){
     toast(gaps.length?('已開單，但'+gaps.join('、')+'還沒填'):'已開單，可以接著點下一位客戶',gaps.length>0);
   }
   save(); draft=newDraft(); renderGrid(); syncTotal(); closeSheet();
-  // 啟用 LINE 通知時，開完新單顯示訂單號與官方帳號 QR，讓業務引導客人
-  if(isNew&&saved.code&&S.settings.lineNotify) showOrderDone(saved);
+  // 開完新單一定跳出彈窗，顯示訂單號並提醒業務告知客人可傳 LINE 查詢
+  if(isNew&&saved.code) showOrderDone(saved);
 }
 /* 4 碼數字訂單號，全域唯一，現場好跟客人唸 */
 function genOrderCode(){
@@ -1818,16 +1818,20 @@ function genOrderCode(){
 /* 開完單的完成畫面：訂單號 + 官方帳號 QR + 引導語 */
 function showOrderDone(o){
   const qr=IMG['oaqr']||'';
-  openSheet('請客人加 LINE 收訂單',`
+  openSheet('開單完成',`
     <div style="text-align:center">
-      <div class="note" style="margin-top:0">請客人<b>加入官方帳號</b>，並把這組訂單號傳給官方帳號，就會收到訂單資訊。</div>
-      <div style="font-family:var(--mono);font-size:40px;font-weight:700;letter-spacing:.12em;
-        color:var(--bot);margin:14px 0 6px">${esc(o.code)}</div>
-      ${qr?`<div style="background:#fff;display:inline-block;padding:10px;border-radius:12px;margin-top:6px">
-        <img src="${esc(qr)}" style="width:min(60vw,240px);display:block"></div>
-        <div class="note" style="margin-top:8px">掃上面 QR 加官方帳號</div>`
-        :`<div class="warnbox" style="margin-top:10px"><div class="note">還沒設定官方帳號 QR：設定 → LINE 訂單通知 → 上傳加好友 QR。</div></div>`}
-      <button class="btn wide" id="odClose" style="margin-top:16px">完成</button>
+      <div class="note" style="margin-top:0">這張單的訂單號</div>
+      <div style="font-family:var(--mono);font-size:52px;font-weight:700;letter-spacing:.14em;
+        color:var(--bot);margin:6px 0 10px">${esc(o.code)}</div>
+      <div class="warnbox" style="text-align:left;margin:0 0 12px">
+        <div class="note" style="margin:0">請<b>口頭告訴客人這組號碼</b>，並提醒他：<br>
+        加入官方帳號後，把這組 <b>${esc(o.code)}</b> 傳給官方帳號，就能查看自己的訂單明細。</div>
+      </div>
+      ${qr?`<div class="note" style="margin:0 0 6px">請客人掃這個 QR 加官方帳號</div>
+        <div style="background:#fff;display:inline-block;padding:10px;border-radius:12px">
+        <img src="${esc(qr)}" style="width:min(60vw,240px);display:block"></div>`
+        :`<div class="note" style="opacity:.7">（還沒設定官方帳號 QR：設定 → LINE 訂單通知 → 上傳加好友 QR）</div>`}
+      <button class="btn wide" id="odClose" style="margin-top:16px">知道了，繼續開單</button>
     </div>`,()=>{ $('#odClose').onclick=closeSheet; });
 }
 $('#btnNewOrder').onclick=()=>{
