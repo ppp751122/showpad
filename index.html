@@ -569,6 +569,7 @@ table.prev td{padding:5px 8px;border:1px solid var(--chalk);white-space:nowrap}
         <button class="btn danger sm wide" id="btnClearOrders">清除所有訂單（保留商品與客戶）</button>
       </div>
     </div>
+    <div class="note" style="text-align:center;opacity:.55;margin:18px 0 4px" id="appVer"></div>
   </div>
 </main>
 
@@ -608,6 +609,7 @@ table.prev td{padding:5px 8px;border:1px solid var(--chalk);white-space:nowrap}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
+const APP_VER='2026-11-06c · 4碼單號·開單彈窗';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -1801,7 +1803,8 @@ function saveOrder(){
   }
   save(); draft=newDraft(); renderGrid(); syncTotal(); closeSheet();
   // 開完新單一定跳出彈窗，顯示訂單號並提醒業務告知客人可傳 LINE 查詢
-  if(isNew&&saved.code) showOrderDone(saved);
+  // 延遲一拍，避開「關舊視窗／開新視窗」同一瞬間互相蓋掉
+  if(isNew&&saved.code) setTimeout(()=>showOrderDone(saved),120);
 }
 /* 4 碼數字訂單號，全域唯一，現場好跟客人唸 */
 function genOrderCode(){
@@ -2418,6 +2421,7 @@ $('#btnProdCsv').onclick=()=>{
    ===================================================================== */
 function renderSettings(){
   const st=S.settings;
+  const vEl=$('#appVer'); if(vEl) vEl.textContent='版本 '+APP_VER;
   $('#stMeName').textContent=S.settings.me||'未登入';
   $('#stSwitch').onclick=showLogin;
   $('#stRoom').value=S.settings.room||'';
