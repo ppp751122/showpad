@@ -611,7 +611,7 @@ details.evgrp summary{-webkit-tap-highlight-color:transparent}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-06o · 上傳前先建檔期資料';
+const APP_VER='2026-11-06p · 目前檔不再亂跳';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -812,16 +812,15 @@ function custLabel(c){ return c?(c.name||(c.tax?'統編 '+c.tax:'未命名客戶
 const eventOf=id=>S.events.find(e=>e.id===id)||null;
 function curEvent(){ return eventOf(S.settings.curEvent); }
 /* 決定「目前點單檔期」：
-   - 已選的檔還在進行中 → 保留
-   - 還停在自動轉檔的「既有資料」而且已有自建檔期 → 跳到最近更新的那個
+   - 已選的檔還在進行中 → 保留不動（重整/同步都不亂跳）
    - 目前檔空白／不存在／已歸檔 → 用最近更新的進行中檔期 */
 function ensureCurEvent(){
-  const act=S.events.filter(e=>e.status!=='done').sort((a,b)=>(b.ua||0)-(a.ua||0));
   let cur=eventOf(S.settings.curEvent);
-  if(cur&&cur.status==='done') cur=null;
-  if(cur&&cur.id==='ev-legacy'){ const real=act.filter(e=>e.id!=='ev-legacy');
-    if(real.length) cur=real[0]; }
-  if(!cur) cur=act[0]||null;
+  if(cur&&cur.status==='done') cur=null;   // 目前檔已歸檔才換
+  if(!cur){                                 // 目前檔空白／不存在／已歸檔 → 用最近更新的進行中檔期
+    const act=S.events.filter(e=>e.status!=='done').sort((a,b)=>(b.ua||0)-(a.ua||0));
+    cur=act[0]||null;
+  }
   const id=cur?cur.id:'';
   if(S.settings.curEvent!==id){ S.settings.curEvent=id; save(); }
 }
