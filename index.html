@@ -611,7 +611,7 @@ details.evgrp summary{-webkit-tap-highlight-color:transparent}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-06m · 可賣口徑·檔期日期區間';
+const APP_VER='2026-11-06n · 上傳上架清單';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -1021,10 +1021,12 @@ function openEventEditor(ev){
     <div class="sec"><div class="sec-h">上架與定價</div>
       <p class="note" style="margin:-4px 0 10px">每列三欄：勾選＝上架、中間＝<b>售價</b>、右邊＝<b>帶去庫存</b>（單杯為<b>每日限量</b>）。數量留空＝不追蹤庫存。</p>
       ${ro?'':`<div class="row" style="margin-bottom:10px;flex-wrap:wrap">
-        <button class="btn sm" id="evImport">匯入 ECOUNT 庫存</button>
+        <button class="btn sm" id="evShelf">上傳上架清單</button>
+        <button class="btn ghost sm" id="evImport">匯入 ECOUNT 庫存</button>
         <button class="btn ghost sm" id="evBulk">整檔調幅</button>
         <button class="btn ghost sm" id="evAll">全部上架</button>
         <button class="btn ghost sm" id="evNone">全部下架</button>
+        <button class="btn ghost sm" id="evTpl">下載清單範本</button>
       </div>`}
       <input type="text" id="evSearch" placeholder="搜尋品名或編碼" autocomplete="off"
         style="width:100%;padding:9px 12px;border:1px solid #DDD;border-radius:9px;margin-bottom:8px;font-size:16px">
@@ -1037,7 +1039,8 @@ function openEventEditor(ev){
            <p class="note" style="margin-top:8px">歸檔後這一檔轉唯讀,訂單保留在歷史檔期可查看與重新匯出。</p>`}
     </div>
     <input type="file" id="evImgFile" accept="image/*" style="display:none">
-    <input type="file" id="evCsvFile" accept=".csv,.xlsx,.xls,text/csv" style="display:none">`;
+    <input type="file" id="evCsvFile" accept=".csv,.xlsx,.xls,text/csv" style="display:none">
+    <input type="file" id="evShelfFile" accept=".csv,.xlsx,.xls,text/csv" style="display:none">`;
   const reName=()=>{ $('#adTitle').textContent=ev.name; };
   $('#adBack').onclick=renderAdminList;
   if(ro){
@@ -1065,6 +1068,9 @@ function openEventEditor(ev){
   $('#evSearch').oninput=()=>renderListings(ev);
   $('#evImport').onclick=()=>$('#evCsvFile').click();
   $('#evCsvFile').onchange=e=>{ const f=e.target.files[0]; if(f) importEcount(ev,f); e.target.value=''; };
+  $('#evShelf').onclick=()=>$('#evShelfFile').click();
+  $('#evShelfFile').onchange=e=>{ const f=e.target.files[0]; if(f) importShelf(ev,f); e.target.value=''; };
+  $('#evTpl').onclick=()=>downloadShelfTemplate(ev);
   $('#evArchive').onclick=()=>archiveEvent(ev);
   renderListings(ev);
 }
@@ -1316,6 +1322,95 @@ function ecountRows(matrix){
       total:map.total!=null?num(row[map.total]):0});
   }
   return out;
+}
+
+/* ===== 上傳上架清單：一次設定上架 + 備貨量（可含售價） ===== */
+/* 從二維陣列抓出 [{code,name,qty,price}]；需要「品號」與「備貨量/數量」欄 */
+function shelfRows(matrix){
+  if(!matrix||!matrix.length) return [];
+  let hi=-1, map={};
+  for(let i=0;i<Math.min(matrix.length,10);i++){
+    const row=(matrix[i]||[]).map(c=>String(c==null?'':c).replace(/\s/g,''));
+    const m={};
+    row.forEach((h,j)=>{ const set=k=>{ if(m[k]==null) m[k]=j; };
+      if(/^品項編碼$|^品號$|^料號$|^編碼$|^代碼$/.test(h)) set('code');
+      else if(/^品項名稱$|^品名$|^名稱$/.test(h)) set('name');
+      else if(/備貨|帶去|^數量$|^庫存$|每日限量|^限量$|上架數/.test(h)) set('qty');
+      else if(/單價|售價|價格/.test(h)) set('price');
+    });
+    if(m.code!=null&&m.qty!=null){ hi=i; map=m; break; }
+  }
+  if(hi<0) return [];
+  const cell=(row,k)=>map[k]!=null?String(row[map[k]]==null?'':row[map[k]]).trim():'';
+  const num=v=>{ const s=String(v==null?'':v).replace(/[,\s]/g,''); if(s==='') return null;
+    const n=Number(s); return isNaN(n)?null:n; };
+  const out=[];
+  for(let i=hi+1;i<matrix.length;i++){
+    const row=matrix[i]||[];
+    const code=cell(row,'code'); if(!code||!isProdCode(code)) continue;
+    out.push({code,name:cell(row,'name'),
+      qty:map.qty!=null?num(row[map.qty]):null,
+      price:map.price!=null?num(row[map.price]):null});
+  }
+  return out;
+}
+async function importShelf(ev,file){
+  toast('讀取中…');
+  let matrix;
+  try{ const name=(file.name||'').toLowerCase();
+    matrix=(name.endsWith('.xlsx')||name.endsWith('.xls'))?await readXlsx(file):await readCsvMatrix(file);
+  }catch(e){ console.error(e); toast('檔案讀取失敗，可改用 CSV',true); return; }
+  const rows=shelfRows(matrix);
+  if(!rows.length){ toast('看不懂這份檔，需要有「品號」與「備貨量/數量」欄',true); return; }
+  const matched=[], miss=[];
+  rows.forEach(r=>{ const p=prodOf(r.code); if(p) matched.push({p,r}); else miss.push(r.code); });
+  if(!matched.length){ toast('清單裡的品號都對不到商品，請確認品號一致',true); return; }
+  openShelfConfirm(ev,matched,miss);
+}
+function openShelfConfirm(ev,matched,miss){
+  const inFile=new Set(matched.map(x=>x.p.code));
+  const curOn=S.products.filter(p=>{ const ls=ev.listings[p.code]; return ls&&ls.on; });
+  const willOff=curOn.filter(p=>!inFile.has(p.code));
+  const prev=matched.slice(0,40).map(({p,r})=>`<div class="lirow">
+      <div class="nm"><b>${esc(p.name)}</b><small>${esc(dCode(p))}</small></div>
+      <span class="stk">${isCup(p)?'每日':'帶去'} ${r.qty==null?'—':r.qty}</span>
+      ${r.price!=null?`<span class="stk">$${nf(r.price)}</span>`:''}
+    </div>`).join('')+(matched.length>40?`<p class="note" style="padding:8px">…共 ${matched.length} 項</p>`:'');
+  openSheet('依清單上架',`
+    <p class="note" style="margin-top:0">清單對應到 <b>${matched.length}</b> 項商品${
+      miss.length?`，另有 <b>${miss.length}</b> 個品號對不到（略過）`:''}。套用後這些品項會上架並填入備貨量${matched.some(x=>x.r.price!=null)?'與售價':''}。</p>
+    ${miss.length?`<div class="warnbox" style="margin-bottom:10px"><div class="note">對不到：${esc(miss.slice(0,10).join('、'))}${miss.length>10?'…':''}</div></div>`:''}
+    <div class="card" style="padding:2px 12px;margin-bottom:12px;max-height:40vh;overflow:auto">${prev}</div>
+    <button class="btn wide" id="shReplace">依清單上架（其他 ${willOff.length} 項下架）</button>
+    <button class="btn ghost wide sm" id="shMerge" style="margin-top:8px">只套用清單（保留其他上架）</button>`,()=>{
+    const apply=replace=>{
+      matched.forEach(({p,r})=>{
+        const ls=ev.listings[p.code]||(ev.listings[p.code]={on:false,price:''});
+        ls.on=true;
+        if(r.qty!=null){ if(isCup(p)) ls.daily=r.qty; else ls.cap=r.qty; }
+        if(r.price!=null) ls.price=r.price;
+      });
+      if(replace) willOff.forEach(p=>{ const ls=ev.listings[p.code]; if(ls) ls.on=false; });
+      saveEvent(ev); closeSheet(); renderListings(ev);
+      toast('已依清單上架 '+matched.length+' 項');
+    };
+    $('#shReplace').onclick=()=>apply(true);
+    $('#shMerge').onclick=()=>apply(false);
+  });
+}
+/* 下載一份可直接填的清單範本（帶入本檔目前上架的品項） */
+function downloadShelfTemplate(ev){
+  const csvCell=v=>{ const s=String(v==null?'':v);
+    return /[",\r\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; };
+  const on=S.products.filter(p=>{ const ls=ev.listings[p.code]; return ls&&ls.on; });
+  const base=on.length?on:S.products;
+  const rows=[['品號','品名','備貨量','售價'],
+    ...base.map(p=>{ const ls=ev.listings[p.code]||{};
+      const qty=isCup(p)?(ls.daily??''):(ls.cap??'');
+      return [dCode(p),p.name,qty===null?'':qty,(ls.price!=null&&ls.price!=='')?ls.price:(p.price||'')]; })];
+  downloadBlob(new Blob(['﻿'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n')],
+    {type:'text/csv;charset=utf-8'}),'上架清單範本.csv');
+  toast('已下載範本，填好「品號」「備貨量」再上傳');
 }
 
 /* ---------- 金額 ---------- */
