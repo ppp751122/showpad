@@ -620,7 +620,7 @@ details.evgrp summary{-webkit-tap-highlight-color:transparent}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-08e · 上架編輯不跳動·儲存並整理';
+const APP_VER='2026-11-08f · 費用類品項不計庫存';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -808,6 +808,7 @@ function saveImgs(){ Store.set(KEY_IMG,IMG); }
 
 /* ---------- 品項小工具 ---------- */
 const isCup=p=>p&&p.cat==='單杯';
+const isFee=p=>p&&p.cat==='費用';   // 費用類(運費/服務費等)：不計庫存
 /* 顯示 / 匯出用品號：
    - 若品項有 ecode（顯示品號）就用它——這是「同品號、不同品名」共用的 ECOUNT 品號
    - 單杯沒設 ecode 時仍一律回 A0002（相容舊資料）
@@ -827,7 +828,7 @@ function isSS(p){
   const s=((p.brand||'')+' '+(p.name||'')).toUpperCase().replace(/＆/g,'&');
   return s.includes('S&S')||s.includes('SOUL & SPIRITS');
 }
-const unitOf=p=>isCup(p)?'杯':'瓶';
+const unitOf=p=>isFee(p)?'筆':(isCup(p)?'杯':'瓶');
 const prodOf=code=>S.products.find(x=>x.code===code)||null;
 /* 圖片來源：使用者上傳 > 自訂網址 > 內建照片 */
 /* 單一來源：商品的 imgurl（隨商品同步、各頁一致）→ 舊的本機 IMG → 內建 PHOTO */
@@ -1187,7 +1188,8 @@ function renderListings(ev){
       <div class="nm"><b>${esc(p.name)}</b>
         <small>${esc(dCode(p))}${isSS(p)?' · S&S':''}${st!=null?' · 庫'+st:''}</small></div>
       <input class="pr" type="number" inputmode="numeric" value="${esc(price)}" placeholder="價格" style="width:60px">
-      <input class="qt" type="number" inputmode="numeric" value="${esc(qv)}" placeholder="${cup?'每日':'帶去'}" style="width:58px">
+      ${isFee(p)?`<span class="qt" style="width:58px;text-align:center;font-size:12px;color:#999;align-self:center">不計庫存</span>`
+        :`<input class="qt" type="number" inputmode="numeric" value="${esc(qv)}" placeholder="${cup?'每日':'帶去'}" style="width:58px">`}
       <button class="btn ghost sm" data-act="img" style="padding:6px 8px">${img?'改圖':'圖'}</button>
     </div>`;
   };
@@ -1580,7 +1582,7 @@ function curLs(p){ return listingOf(curEvent(), p&&p.code); }
 const dailyOf=p=>{ if(!p||!isCup(p)||!cupOnFor(curEvent())) return null; const ls=curLs(p);
   return (ls&&ls.daily!==''&&ls.daily!=null)?Number(ls.daily):null; };
 /* 瓶裝帶去庫存：讀目前檔期 */
-const capBottle=p=>{ if(!p||isCup(p)) return null; const ls=curLs(p);
+const capBottle=p=>{ if(!p||isCup(p)||isFee(p)) return null; const ls=curLs(p);
   return (ls&&ls.cap!==''&&ls.cap!=null)?Number(ls.cap):null; };
 /* 售出數量只計「目前檔期」的訂單（帶去庫存一檔一檔獨立） */
 function soldQty(code,exDraft){
@@ -1612,7 +1614,7 @@ function remainSaved(p,date){
   const cap=capBottle(p); if(cap==null) return null;
   return cap-soldQty(p.code,false);
 }
-const capOf=p=>isCup(p)?dailyOf(p):capBottle(p);
+const capOf=p=>isFee(p)?null:(isCup(p)?dailyOf(p):capBottle(p));   // 費用類永不計庫存
 
 /* ---------- 分頁 ---------- */
 const VIEWS=['home','order','stock','orders','settings'];
@@ -2357,11 +2359,12 @@ function renderStock(){
     return `<div class="srow">
       <div class="thumb">${img?`<img src="${esc(img)}">`:`<span>${esc((p.name||'?').slice(0,1))}</span>`}</div>
       <div class="t"><b>${esc(p.name)}</b>
-        <em>${esc(dCode(p))}${isCup(p)?' · 單杯':' · '+esc(p.spec||'')+' · '+(p.pack||1)+'入'}</em>
-        ${cap==null?'<span class="brk">未設定庫存</span>'
+        <em>${esc(dCode(p))}${isFee(p)?' · 費用':(isCup(p)?' · 單杯':' · '+esc(p.spec||'')+' · '+(p.pack||1)+'入')}</em>
+        ${isFee(p)?'<span class="brk" style="opacity:.6">不計庫存</span>'
+          :cap==null?'<span class="brk">未設定庫存</span>'
           :`<span class="brk">${d!=null?'今日限量':'帶去'} ${cap}　已售 ${cap-r}${
             inCart?'　本單 '+inCart:''}</span>`}${
-          (!isCup(p)&&ecStock(p.code)!=null)
+          (!isCup(p)&&!isFee(p)&&ecStock(p.code)!=null)
             ?`<span class="brk" style="opacity:.6">倉庫可補 ${Math.max(0,ecStock(p.code)-(capBottle(p)||0))}</span>`:''}</div>
       <div class="sn ${cls}"><b>${txt}</b><span>${cap!=null&&r<=0?'售完':unitOf(p)}</span></div>
     </div>`;
@@ -2566,7 +2569,7 @@ function renderProducts(){
         <div class="t"><b>${esc(p.name)}</b>
           <em>${esc(dCode(p))}${p.brand?' · '+esc(p.brand):''}${p.spec?' · '+esc(p.spec):''}</em></div>
         <div class="r"><b>$${nf(p.price)}</b>
-          <span>${isCup(p)?(dailyOf(p)!=null?'每日 '+dailyOf(p):'單杯'):(p.pack||1)+'入'}${
+          <span>${isFee(p)?'費用':(isCup(p)?(dailyOf(p)!=null?'每日 '+dailyOf(p):'單杯'):(p.pack||1)+'入')}${
             r!=null?' · 剩 '+r:''}</span></div>
       </div>`;
     }).join('')+'</div>'):'<div class="empty">沒有符合的商品</div>';
@@ -2603,6 +2606,7 @@ function editProduct(code){
       <select id="pCat">
         <option value="琴酒"${p.cat==='琴酒'?' selected':''}>琴酒</option>
         <option value="單杯"${p.cat==='單杯'?' selected':''}>單杯</option>
+        <option value="費用"${p.cat==='費用'?' selected':''}>費用（運費／服務費等，不計庫存）</option>
         <option value="__other">其他（自行輸入）</option>
       </select></label>
     <label class="f hide" id="pCatOtherBox"><span>自訂類別</span><input type="text" id="pCatOther"></label>
@@ -2620,7 +2624,7 @@ function editProduct(code){
   `,()=>{
     let newImg=null,dropImg=false;
     const catSel=$('#pCat');
-    if(p.cat&&!['琴酒','單杯'].includes(p.cat)){
+    if(p.cat&&!['琴酒','單杯','費用'].includes(p.cat)){
       catSel.value='__other'; $('#pCatOtherBox').classList.remove('hide'); $('#pCatOther').value=p.cat;
     }
     catSel.onchange=()=>$('#pCatOtherBox').classList.toggle('hide',catSel.value!=='__other');
