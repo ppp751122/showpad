@@ -358,6 +358,13 @@ table.prev td{padding:5px 8px;border:1px solid var(--chalk);white-space:nowrap}
   .wrap{padding-left:max(14px,env(safe-area-inset-left));
         padding-right:max(14px,env(safe-area-inset-right))}
 }
+.tile{position:relative}
+.tile .dh{display:none;position:absolute;top:5px;left:5px;z-index:4;width:28px;height:28px;
+  align-items:center;justify-content:center;border-radius:7px;background:rgba(20,20,20,.5);
+  color:#fff;font-size:15px;line-height:1;cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none}
+.grid.reorder .tile .dh{display:flex}
+.grid.reorder .tile{touch-action:pan-y}
+.tile.dragging{opacity:.55;outline:2px dashed var(--bot);outline-offset:-2px}
 details.evgrp summary::-webkit-details-marker{display:none}
 details.evgrp summary::marker{content:''}
 details.evgrp summary{-webkit-tap-highlight-color:transparent}
@@ -391,6 +398,7 @@ details.evgrp summary{-webkit-tap-highlight-color:transparent}
   <div class="searchrow"><input type="text" id="q" placeholder="搜尋品名或編碼" autocomplete="off"></div>
   <div class="chips" id="chipsCat"></div>
   <div class="chips" id="chipsBrand"></div>
+  <div class="chips" id="chipsSort"></div>
   <div class="grid" id="grid"></div>
   <div class="empty hide" id="gridEmpty">
     <div class="big">還沒有商品</div>
@@ -611,7 +619,7 @@ details.evgrp summary{-webkit-tap-highlight-color:transparent}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-07a · 檔期刪除·清單帶倉庫庫存';
+const APP_VER='2026-11-08a · 點單排序·拖曳自訂';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -1679,6 +1687,13 @@ function renderChips(){
     `<button class="chip${fBrand===b?' on':''}" data-b="${esc(b)}">${b?esc(b):'全部品牌'}</button>`).join('');
   bEl.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{
     fBrand=b.dataset.b; renderChips(); renderGrid(); });
+  // 排序：自訂(可拖曳) / 價格 / 品牌
+  const SORTS=[['custom','自訂排序'],['price-asc','價格 ↑'],['price-desc','價格 ↓'],['brand-asc','品牌 ↑'],['brand-desc','品牌 ↓']];
+  const cur=S.settings.gridSort||'custom';
+  const sEl=$('#chipsSort');
+  sEl.innerHTML=SORTS.map(([k,t])=>`<button class="chip${cur===k?' on':''}" data-sort="${k}">${t}</button>`).join('');
+  sEl.querySelectorAll('.chip').forEach(b=>b.onclick=()=>{
+    S.settings.gridSort=b.dataset.sort; save(); renderChips(); renderGrid(); });
 }
 function renderGrid(){
   const kw=q.trim().toLowerCase();
@@ -1690,6 +1705,18 @@ function renderGrid(){
     return (p.name+' '+p.code+' '+(p.spec||'')+' '+(p.brand||'')).toLowerCase().includes(kw);
   });
   $('#gridEmpty').classList.toggle('hide',base.length>0);
+  // 排序
+  const sort=S.settings.gridSort||'custom';
+  const baseIdx=new Map(base.map((p,i)=>[p.code,i]));
+  const ev=curEvent();
+  const ordVal=p=>{ const ls=ev&&ev.listings[p.code]; const o=ls&&ls.ord;
+    return (o==null)?1e6+(baseIdx.get(p.code)||0):o; };
+  if(sort==='price-asc') list.sort((a,b)=>priceOf(a)-priceOf(b));
+  else if(sort==='price-desc') list.sort((a,b)=>priceOf(b)-priceOf(a));
+  else if(sort==='brand-asc') list.sort((a,b)=>(a.brand||'').localeCompare(b.brand||'','zh-Hant')||(baseIdx.get(a.code)-baseIdx.get(b.code)));
+  else if(sort==='brand-desc') list.sort((a,b)=>(b.brand||'').localeCompare(a.brand||'','zh-Hant')||(baseIdx.get(a.code)-baseIdx.get(b.code)));
+  else list.sort((a,b)=>ordVal(a)-ordVal(b));
+  $('#grid').classList.toggle('reorder',sort==='custom');
   $('#grid').innerHTML=list.map(p=>{
     const qty=(draft.lines[p.code]||{}).qty||0;
     const img=imgForEvt(p);
@@ -1701,6 +1728,7 @@ function renderGrid(){
       cls=rem<=0?'zero':(rem<=1?'low':'');
     }
     return `<div class="tile${qty?' on':''}${rem!==null&&rem<=0?' out':''}${cup?' cup':''}" data-code="${esc(p.code)}">
+      <div class="dh" data-dh title="拖曳排序">⠿</div>
       <div class="shot" data-act="add">
         ${img?`<img src="${esc(img)}" alt="" loading="lazy">`:`<div class="ph">${esc((p.name||'?').slice(0,1))}</div>`}
 
@@ -1730,6 +1758,38 @@ function renderGrid(){
       bump(p,a==='add'?1:a==='minus'?-1:(p.pack||1));
     });
   });
+  if(sort==='custom') $('#grid').querySelectorAll('[data-dh]').forEach(dh=>
+    dh.addEventListener('pointerdown',reorderDown));
+}
+// 自訂排序：從把手拖曳，放開後把新順序寫進該檔(ls.ord)
+let dragTile=null;
+function reorderDown(e){
+  const tile=e.target.closest('.tile'); if(!tile) return;
+  e.preventDefault(); e.stopPropagation();
+  dragTile=tile; tile.classList.add('dragging');
+  try{ e.target.setPointerCapture(e.pointerId); }catch(_){}
+  window.addEventListener('pointermove',reorderMove);
+  window.addEventListener('pointerup',reorderUp,{once:true});
+  window.addEventListener('pointercancel',reorderUp,{once:true});
+}
+function reorderMove(e){
+  if(!dragTile) return;
+  const el=document.elementFromPoint(e.clientX,e.clientY);
+  const over=el&&el.closest?el.closest('.tile'):null;
+  if(!over||over===dragTile||over.parentNode!==dragTile.parentNode) return;
+  const r=over.getBoundingClientRect();
+  const after=(e.clientY>r.top+r.height/2)?true:(e.clientY>=r.top&&e.clientX>r.left+r.width/2);
+  dragTile.parentNode.insertBefore(dragTile, after?over.nextSibling:over);
+}
+function reorderUp(){
+  window.removeEventListener('pointermove',reorderMove);
+  if(!dragTile) return;
+  dragTile.classList.remove('dragging');
+  const ev=curEvent();
+  if(ev){ [...$('#grid').children].forEach((t,i)=>{ const c=t.dataset.code; if(!c) return;
+    const ls=ev.listings[c]||(ev.listings[c]={on:true,price:''}); ls.ord=i; });
+    saveEvent(ev); }
+  dragTile=null;
 }
 function bump(p,delta){
   const l=draft.lines[p.code]||(draft.lines[p.code]={qty:0,price:priceOf(p)});
