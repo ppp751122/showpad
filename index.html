@@ -619,7 +619,7 @@ details.evgrp summary{-webkit-tap-highlight-color:transparent}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-08c · 改用IndexedDB存圖不再爆容量';
+const APP_VER='2026-11-08d · 圖片單一來源統一各頁';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -829,7 +829,8 @@ function isSS(p){
 const unitOf=p=>isCup(p)?'杯':'瓶';
 const prodOf=code=>S.products.find(x=>x.code===code)||null;
 /* 圖片來源：使用者上傳 > 自訂網址 > 內建照片 */
-const imgFor=p=>(p&&(IMG[p.code]||p.imgurl||PHOTO[p.code]))||'';
+/* 單一來源：商品的 imgurl（隨商品同步、各頁一致）→ 舊的本機 IMG → 內建 PHOTO */
+const imgFor=p=>(p&&(p.imgurl||IMG[p.code]||PHOTO[p.code]))||'';
 function packLabel(qty,p){
   if(isCup(p)) return qty+'杯';
   const pack=(p&&p.pack)||1;
@@ -880,10 +881,11 @@ function priceOf(p){
   return Number(p.price)||0;
 }
 /* 某品項在目前檔期的商品圖（檔期圖 > 一般 imgFor） */
+/* 各頁一律用同一來源(商品 imgurl)；舊的 ls.img 只當最後保險 */
 function imgForEvt(p){
-  const ev=curEvent(), ls=listingOf(ev,p.code);
-  if(ls&&ls.img) return ls.img;
-  return imgFor(p);
+  const v=imgFor(p); if(v) return v;
+  const ls=listingOf(curEvent(),p.code);
+  return (ls&&ls.img)||'';
 }
 /* 目前檔期上架、要出現在點單選擇器的品項；沒有檔期時回全部（相容空狀態） */
 function pickerProducts(){
@@ -1173,7 +1175,7 @@ function renderListings(ev){
     const qv=cup?(ls.daily!=null&&ls.daily!==''?ls.daily:'')
                 :(ls.cap!=null&&ls.cap!==''?ls.cap:'');
     const st=ecStock(p.code);
-    const img=ls.img||imgFor(p);
+    const img=imgFor(p);
     return `<div class="lirow" data-code="${esc(p.code)}">
       <input type="checkbox" class="ck" ${ls.on?'checked':''}>
       <div class="nm"><b>${esc(p.name)}</b>
@@ -1206,7 +1208,10 @@ function renderListings(ev){
     r.querySelector('[data-act=img]').onclick=()=>{
       const inp=$('#evImgFile');
       inp.onchange=async e=>{ const f=e.target.files[0]; if(!f){return;}
-        try{ ls.img=await compress(f,640,0.72); ls.on=true; saveEvent(ev); renderListings(ev);
+        try{ const prod=prodOf(code)||p;
+          if(prod){ prod.imgurl=await compress(f,560,0.72); prod.ua=Date.now(); }
+          delete ls.img; delete IMG[code];      // 單一來源：寫到商品，清掉舊的 ls.img / IMG
+          ls.on=true; saveEvent(ev); save(); saveImgs(); renderListings(ev);
           toast('已更新商品圖'); }catch(err){ toast('圖片處理失敗',true); }
         inp.value='';
       };
@@ -2616,7 +2621,7 @@ function editProduct(code){
     $('#pPick').onclick=()=>$('#pFile').click();
     $('#pFile').onchange=async e=>{
       const f=e.target.files[0]; if(!f) return;
-      try{ newImg=await compress(f); dropImg=false;
+      try{ newImg=await compress(f,560,0.72); dropImg=false;
         $('#pPrev').innerHTML=`<img src="${newImg}" style="width:100%;height:100%;object-fit:cover">`;
       }catch(err){ toast('照片處理失敗',true); }
     };
@@ -2636,19 +2641,21 @@ function editProduct(code){
         }
       }
       const cat=catSel.value==='__other'?($('#pCatOther').value.trim()||'其他'):catSel.value;
+      // 圖片單一來源 imgurl：上傳的照片優先，其次文字網址；清除則留空
+      let imgurl=$('#pUrl').value.trim();
+      if(newImg) imgurl=newImg; else if(dropImg) imgurl='';
       const obj={code:icode,name:$('#pName').value.trim()||ecode,spec:$('#pSpec').value.trim(),
         brand:$('#pBrand').value.trim(),cat,
         price:parseFloat($('#pPrice').value)||0,pack:parseInt($('#pPack').value)||1,
         stock:p.stock==null?'':p.stock,daily:p.daily==null?'':p.daily,
-        imgurl:$('#pUrl').value.trim()};
+        imgurl};
       if(ecode&&ecode!==icode) obj.ecode=ecode; // 顯示品號與內部鍵不同時才記錄
       obj.ua=Date.now();                        // 蓋更新時間，保護同步不被雲端舊資料覆蓋
       if(code){
         const i=S.products.findIndex(x=>x.code===code);
         S.products[i]=obj;
       }else S.products.push(obj);
-      if(newImg){ IMG[icode]=newImg; saveImgs(); }
-      if(dropImg){ delete IMG[icode]; saveImgs(); }
+      delete IMG[icode]; delete IMG[code]; saveImgs();   // 清掉舊的本機圖來源，避免兩個來源打架
       save(); closeSheet(); renderItems(); renderChips(); renderGrid(); toast('已儲存');
     };
     if($('#pDel')) $('#pDel').onclick=()=>{
@@ -3748,6 +3755,18 @@ async function boot(){
     S.products.forEach(p=>{ if((p.whQty==null||p.whQty==='')&&m[p.code]!=null&&m[p.code]!==''){
       p.whQty=Number(m[p.code]); p.ua=Date.now(); } });
     S.settings.migWh10=1; save();
+  }
+  // 2.0：圖片統一到商品 imgurl（單一來源，隨商品同步），把舊的 IMG[code]／ls.img 搬過去再清掉(省空間)
+  if(!S.settings.migImg11){
+    S.products.forEach(p=>{
+      if(p.imgurl) return;
+      if(IMG[p.code]){ p.imgurl=IMG[p.code]; p.ua=Date.now(); return; }
+      for(const e of S.events){ const ls=e.listings&&e.listings[p.code];
+        if(ls&&ls.img){ p.imgurl=ls.img; p.ua=Date.now(); break; } }
+    });
+    S.products.forEach(p=>{ if(IMG[p.code]!=null) delete IMG[p.code]; });   // 清本機舊圖
+    S.events.forEach(e=>{ if(e.listings) Object.values(e.listings).forEach(ls=>{ if(ls&&ls.img) delete ls.img; }); });
+    S.settings.migImg11=1; save(); saveImgs();
   }
   ensureCurEvent();
   draft=newDraft(); boot2(); renderHome();
