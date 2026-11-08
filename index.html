@@ -365,6 +365,7 @@ table.prev td{padding:5px 8px;border:1px solid var(--chalk);white-space:nowrap}
 .grid.reorder .tile .dh{display:flex}
 .grid.reorder .tile{touch-action:pan-y}
 .tile.dragging{opacity:.55;outline:2px dashed var(--bot);outline-offset:-2px}
+.lirow.offrow{opacity:.5}
 details.evgrp summary::-webkit-details-marker{display:none}
 details.evgrp summary::marker{content:''}
 details.evgrp summary{-webkit-tap-highlight-color:transparent}
@@ -619,7 +620,7 @@ details.evgrp summary{-webkit-tap-highlight-color:transparent}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-08d · 圖片單一來源統一各頁';
+const APP_VER='2026-11-08e · 上架編輯不跳動·儲存並整理';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -1103,8 +1104,12 @@ function openEventEditor(ev){
         <button class="btn ghost sm" id="evNone">全部下架</button>
         <button class="btn ghost sm" id="evTpl">下載清單範本</button>
       </div>`}
-      <input type="text" id="evSearch" placeholder="搜尋品名或編碼" autocomplete="off"
-        style="width:100%;padding:9px 12px;border:1px solid #DDD;border-radius:9px;margin-bottom:8px;font-size:16px">
+      <div class="row" style="gap:8px;align-items:center;margin-bottom:8px">
+        <input type="text" id="evSearch" placeholder="搜尋品名或編碼" autocomplete="off"
+          style="flex:1;padding:9px 12px;border:1px solid #DDD;border-radius:9px;font-size:16px">
+        ${ro?'':`<button class="btn sm" id="evSaveList" style="white-space:nowrap">儲存並整理</button>`}
+      </div>
+      ${ro?'':`<p class="note" style="margin:-2px 0 8px">邊改邊自動存;勾選不會即時跳動，按「儲存並整理」才會把已/未上架重新分組。</p>`}
       <div class="card" id="evListings"></div>
     </div>
     <div class="sec">
@@ -1130,6 +1135,7 @@ function openEventEditor(ev){
   bind('#evDate',v=>{ ev.date=v.trim(); if(!ev.dateEnd||ev.dateEnd<ev.date) ev.dateEnd=ev.date; });
   bind('#evDateEnd',v=>{ ev.dateEnd=v.trim()||ev.date; if(ev.dateEnd<ev.date) ev.dateEnd=ev.date; });
   bind('#evVenue',v=>ev.venue=v.trim());
+  { const sb=$('#evSaveList'); if(sb) sb.onclick=()=>{ saveEvent(ev); renderListings(ev); toast('已儲存，分組已整理'); }; }
   $('#evSS').onchange=e=>{ ev.ssEnabled=e.target.checked; saveEvent(ev); };
   $('#evCup').onchange=e=>{ ev.cupEnabled=e.target.checked; saveEvent(ev); renderListings(ev); };
   const cb=$('#evMakeCur'); if(cb){
@@ -1176,7 +1182,7 @@ function renderListings(ev){
                 :(ls.cap!=null&&ls.cap!==''?ls.cap:'');
     const st=ecStock(p.code);
     const img=imgFor(p);
-    return `<div class="lirow" data-code="${esc(p.code)}">
+    return `<div class="lirow${ls.on?'':' offrow'}" data-code="${esc(p.code)}">
       <input type="checkbox" class="ck" ${ls.on?'checked':''}>
       <div class="nm"><b>${esc(p.name)}</b>
         <small>${esc(dCode(p))}${isSS(p)?' · S&S':''}${st!=null?' · 庫'+st:''}</small></div>
@@ -1193,7 +1199,7 @@ function renderListings(ev){
     const code=r.dataset.code;
     const p=prodOf(code);
     const ls=ev.listings[code]||(ev.listings[code]={on:false,price:''});
-    r.querySelector('.ck').onchange=e=>{ ls.on=e.target.checked; saveEvent(ev); renderListings(ev); };
+    r.querySelector('.ck').onchange=e=>{ ls.on=e.target.checked; r.classList.toggle('offrow',!ls.on); saveEvent(ev); };
     r.querySelector('.pr').onchange=e=>{
       const v=e.target.value.trim(); ls.price=v===''?'':Number(v);
       if(v!==''&&ls.on!==true){ ls.on=true; r.querySelector('.ck').checked=true; }
