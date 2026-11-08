@@ -619,7 +619,7 @@ details.evgrp summary{-webkit-tap-highlight-color:transparent}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-08a · 點單排序·拖曳自訂';
+const APP_VER='2026-11-08b · 新增檔期需命名·點單中同步';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -819,18 +819,23 @@ function custLabel(c){ return c?(c.name||(c.tax?'統編 '+c.tax:'未命名客戶
    ===================================================================== */
 const eventOf=id=>S.events.find(e=>e.id===id)||null;
 function curEvent(){ return eventOf(S.settings.curEvent); }
+/* 設為目前點單檔期：ev.cur 時戳會隨雲端同步，各台以「最後被設為點單中」的那檔為準 */
+function setCurrentEvent(ev){
+  if(!ev) return;
+  ev.cur=Date.now(); saveEvent(ev);         // 同步給其他裝置
+  S.settings.curEvent=ev.id; save(); draft=newDraft();
+}
 /* 決定「目前點單檔期」：
-   - 已選的檔還在進行中 → 保留不動（重整/同步都不亂跳）
-   - 目前檔空白／不存在／已歸檔 → 用最近更新的進行中檔期 */
+   - 有人按過「設為點單中」→ 以同步的 cur 時戳最新者為準（各台一致）
+   - 都沒設過 → 保留目前有效的，否則用最近更新的進行中檔期 */
 function ensureCurEvent(){
-  let cur=eventOf(S.settings.curEvent);
-  if(cur&&cur.status==='done') cur=null;   // 目前檔已歸檔才換
-  if(!cur){                                 // 目前檔空白／不存在／已歸檔 → 用最近更新的進行中檔期
-    const act=S.events.filter(e=>e.status!=='done').sort((a,b)=>(b.ua||0)-(a.ua||0));
-    cur=act[0]||null;
-  }
-  const id=cur?cur.id:'';
-  if(S.settings.curEvent!==id){ S.settings.curEvent=id; save(); }
+  const act=S.events.filter(e=>e.status!=='done');
+  if(!act.length){ if(S.settings.curEvent){ S.settings.curEvent=''; save(); } return; }
+  const withCur=act.filter(e=>e.cur!=null).sort((a,b)=>b.cur-a.cur);
+  let cur=withCur[0]||null;
+  if(!cur){ const c=eventOf(S.settings.curEvent);
+    cur=(c&&c.status!=='done')?c:act.slice().sort((a,b)=>(b.ua||0)-(a.ua||0))[0]; }
+  if(S.settings.curEvent!==cur.id){ S.settings.curEvent=cur.id; save(); }
 }
 function activeEvents(){ return S.events.filter(e=>e.status!=='done'); }
 /* 某檔某品項的上架設定（沒有就回 null） */
@@ -898,9 +903,9 @@ function showEventSwitcher(){
   openSheet('選擇檔期',rows+
     `<button class="btn cop wide" id="evAdmin" style="margin-top:10px">管理檔期（上架／定價）</button>`,()=>{
     $('#shBody').querySelectorAll('[data-ev]').forEach(b=>b.onclick=()=>{
-      S.settings.curEvent=b.dataset.ev; save(); closeSheet();
-      draft=newDraft(); renderChips(); renderGrid(); renderHome(); syncTotal();
-      const e=eventOf(S.settings.curEvent); toast('已切換到 '+(e?e.name:''));
+      setCurrentEvent(eventOf(b.dataset.ev)); closeSheet();
+      renderChips(); renderGrid(); renderHome(); syncTotal();
+      const e=curEvent(); toast('已切換到 '+(e?e.name:''));
     });
     $('#evAdmin').onclick=()=>{ closeSheet(); adminGate(); };
   });
@@ -964,8 +969,7 @@ function renderAdminList(){
     ${current.map(e=>evCard(e,false)).join('')||'<p class="note">目前沒有進行中的檔期。</p>'}
     ${history.length?`<div class="sec-h" style="margin-top:22px">歷史檔期（已歸檔）</div>
       ${history.map(e=>evCard(e,true)).join('')}`:''}`;
-  $('#adNew').onclick=()=>{ const e=newEvent(); saveEvent(e);
-    S.settings.curEvent=e.id; save(); openEventEditor(e); };
+  $('#adNew').onclick=promptNewEvent;
   $('#adBody').querySelectorAll('.evcard').forEach(card=>{
     const e=eventOf(card.dataset.ev);
     const on=(act,fn)=>{ const b=card.querySelector('[data-act='+act+']'); if(b) b.onclick=fn; };
@@ -976,10 +980,32 @@ function renderAdminList(){
       const ne=newEvent(e.name+'（複本）'); ne.ssEnabled=e.ssEnabled; ne.cupEnabled=cupOnFor(e); ne.venue=e.venue;
       ne.listings=cloneListings(e); saveEvent(ne); toast('已複製上架與定價'); openEventEditor(ne);
     });
-    on('makecur',()=>{ S.settings.curEvent=e.id; save(); draft=newDraft();
+    on('makecur',()=>{ setCurrentEvent(e);
       toast('點單頁已切到「'+e.name+'」'); renderAdminList(); });
   });
   $('#adClose').onclick=closeAdmin;
+}
+/* 新增檔期：一定要先填名稱才真正建立，避免留下一堆空的「新檔期」 */
+function promptNewEvent(){
+  const today=todayStr();
+  openSheet('新增檔期',`
+    <p class="note" style="margin-top:0">填好名稱才會建立(期間、場地可之後再補)。</p>
+    <label class="f"><span>名稱 *</span><input id="neName" placeholder="例：台北國際酒展"></label>
+    <div class="row" style="gap:8px">
+      <label class="f" style="flex:1"><span>起始日</span><input type="date" id="neDate" value="${esc(today)}"></label>
+      <label class="f" style="flex:1"><span>結束日</span><input type="date" id="neDateEnd" value="${esc(today)}"></label>
+    </div>
+    <label class="f"><span>場地</span><input id="neVenue" placeholder="例：南港展覽館"></label>
+    <button class="btn wide" id="neGo" style="margin-top:4px">建立並進入設定</button>`,()=>{
+    setTimeout(()=>{ const el=$('#neName'); if(el) el.focus(); },50);
+    $('#neGo').onclick=()=>{
+      const nm=$('#neName').value.trim();
+      if(!nm){ toast('請先填名稱',true); return; }
+      const d=$('#neDate').value.trim()||todayStr(), de=$('#neDateEnd').value.trim();
+      const e=newEvent(nm); e.date=d; e.dateEnd=(de&&de>=d)?de:d; e.venue=$('#neVenue').value.trim();
+      saveEvent(e); setCurrentEvent(e); closeSheet(); openEventEditor(e);
+    };
+  });
 }
 
 /* 歸檔：結束檔期 → 轉唯讀、從點單中移除 */
@@ -987,7 +1013,7 @@ function archiveEvent(ev){
   const oc=evOrderCount(ev.id);
   if(!confirm('把「'+ev.name+'」歸檔?\n這一檔的 '+oc+' 張訂單會保留在歷史檔期可查看與重新匯出,但本檔會轉成唯讀,無法再點單或改上架。')) return;
   ev.status='done'; if(S.settings.curEvent===ev.id) S.settings.curEvent='';
-  saveEvent(ev); draft=newDraft();
+  saveEvent(ev); ensureCurEvent(); draft=newDraft();
   toast('已歸檔「'+ev.name+'」'); renderAdminList();
 }
 function unarchiveEvent(ev){
@@ -1081,7 +1107,7 @@ function openEventEditor(ev){
       cb.textContent=isCur?'✓ 點單中':'設為點單中';
       cb.className='btn sm'+(isCur?' ghost':' cop'); cb.disabled=isCur; };
     paintCur();
-    cb.onclick=()=>{ S.settings.curEvent=ev.id; save(); draft=newDraft();
+    cb.onclick=()=>{ setCurrentEvent(ev);
       toast('點單頁已切到「'+ev.name+'」'); paintCur(); };
   }
   $('#evBulk').onclick=()=>bulkAdjust(ev);
