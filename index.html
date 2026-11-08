@@ -620,7 +620,7 @@ details.evgrp summary{-webkit-tap-highlight-color:transparent}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-08f · 費用類品項不計庫存';
+const APP_VER='2026-11-08g · 補貨頁倉庫可補·保留倉庫數';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -2387,10 +2387,13 @@ function restock(){
   const rows=list.map((p,i)=>{
     const cap=capOf(p), d=dailyOf(p);
     const r=cap==null?null:remainSaved(p,today);
+    const wh=(!isCup(p)&&!isFee(p))?ecStock(p.code):null;
+    const canAdd=wh!=null?Math.max(0,wh-(capBottle(p)||0)):null;
     return `<div class="bulk" data-i="${i}">
       <div class="bt"><b>${esc(p.name)}</b>
         <em>${esc(dCode(p))} · ${d!=null?'每日限量 '+d+'，今日剩 '+r
-          :(cap==null?'未設定庫存':(p.pack||1)+'入 · 目前剩 '+r)}</em></div>
+          :(cap==null?'未設定庫存':(p.pack||1)+'入 · 目前剩 '+r)}${
+          canAdd!=null?'　｜ 倉庫可補 '+canAdd:''}</em></div>
       <button class="btn ghost sm" data-k="case">＋${d!=null?1:(p.pack||1)}</button>
       <input type="number" inputmode="numeric" data-k="add" placeholder="0">
     </div>`;
@@ -2658,6 +2661,7 @@ function editProduct(code){
         brand:$('#pBrand').value.trim(),cat,
         price:parseFloat($('#pPrice').value)||0,pack:parseInt($('#pPack').value)||1,
         stock:p.stock==null?'':p.stock,daily:p.daily==null?'':p.daily,
+        whQty:p.whQty==null?'':p.whQty,   // 保留倉庫庫存，編輯商品時不遺失
         imgurl};
       if(ecode&&ecode!==icode) obj.ecode=ecode; // 顯示品號與內部鍵不同時才記錄
       obj.ua=Date.now();                        // 蓋更新時間，保護同步不被雲端舊資料覆蓋
