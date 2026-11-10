@@ -620,7 +620,7 @@ details.evgrp summary{-webkit-tap-highlight-color:transparent}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-08g · 補貨頁倉庫可補·保留倉庫數';
+const APP_VER='2026-11-10a · 目前檔可一鍵同步給所有裝置';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -983,7 +983,7 @@ function evCard(e,history){
         ? `<button class="btn sm" data-act="view">查看</button>
            <button class="btn ghost sm" data-act="export">重新匯出</button>
            <button class="btn ghost sm" data-act="copy">複製為新檔</button>`
-        : `${e.id===S.settings.curEvent?'':'<button class="btn cop sm" data-act="makecur">設為點單中</button>'}
+        : `<button class="btn cop sm" data-act="makecur">${e.id===S.settings.curEvent?'同步給所有裝置':'設為點單中'}</button>
            <button class="btn sm" data-act="edit">進入設定</button>
            <button class="btn ghost sm" data-act="copy">複製為新檔</button>`}
     </div>
@@ -1012,8 +1012,8 @@ function renderAdminList(){
       const ne=newEvent(e.name+'（複本）'); ne.ssEnabled=e.ssEnabled; ne.cupEnabled=cupOnFor(e); ne.venue=e.venue;
       ne.listings=cloneListings(e); saveEvent(ne); toast('已複製上架與定價'); openEventEditor(ne);
     });
-    on('makecur',()=>{ setCurrentEvent(e);
-      toast('點單頁已切到「'+e.name+'」'); renderAdminList(); });
+    on('makecur',()=>{ const was=e.id===S.settings.curEvent; setCurrentEvent(e);
+      toast(was?'已同步給所有裝置':'點單頁已切到「'+e.name+'」'); renderAdminList(); });
   });
   $('#adClose').onclick=closeAdmin;
 }
@@ -1141,11 +1141,11 @@ function openEventEditor(ev){
   $('#evCup').onchange=e=>{ ev.cupEnabled=e.target.checked; saveEvent(ev); renderListings(ev); };
   const cb=$('#evMakeCur'); if(cb){
     const paintCur=()=>{ const isCur=S.settings.curEvent===ev.id;
-      cb.textContent=isCur?'✓ 點單中':'設為點單中';
-      cb.className='btn sm'+(isCur?' ghost':' cop'); cb.disabled=isCur; };
+      cb.textContent=isCur?'同步給所有裝置':'設為點單中';
+      cb.className='btn sm cop'; cb.disabled=false; };
     paintCur();
-    cb.onclick=()=>{ setCurrentEvent(ev);
-      toast('點單頁已切到「'+ev.name+'」'); paintCur(); };
+    cb.onclick=()=>{ const was=S.settings.curEvent===ev.id; setCurrentEvent(ev);
+      toast(was?'已同步給所有裝置':'點單頁已切到「'+ev.name+'」'); paintCur(); };
   }
   $('#evBulk').onclick=()=>bulkAdjust(ev);
   $('#evAll').onclick=()=>{ setAllListed(ev,true); saveEvent(ev); renderListings(ev); };
