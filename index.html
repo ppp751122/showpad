@@ -620,7 +620,7 @@ details.evgrp summary{-webkit-tap-highlight-color:transparent}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-10a · 目前檔可一鍵同步給所有裝置';
+const APP_VER='2026-11-10b · 官方LINE QR跨裝置同步';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -2872,7 +2872,9 @@ function renderSettings(){
       :'<span style="color:#C7C7BF;font-size:11px">未設定</span>';
     $('#btnOaqr').onclick=()=>$('#oaqrFile').click();
     $('#oaqrFile').onchange=async e=>{ const f=e.target.files[0]; if(!f) return;
-      try{ IMG['oaqr']=await compress(f,700,0.82); saveImgs(); renderSettings(); toast('已存官方帳號 QR'); }
+      try{ IMG['oaqr']=await compress(f,700,0.82); saveImgs();
+        if(Sync.on&&Sync.base) Sync.base.child('oaqr').set(IMG['oaqr']).catch(()=>{});
+        renderSettings(); toast('已存官方帳號 QR，並同步給其他裝置'); }
       catch(err){ toast('圖片處理失敗',true); } e.target.value='';
     };
   }
@@ -3495,7 +3497,17 @@ const Sync={
       db.ref('.info/connected').on('value',s=>Sync.setStatus(s.val()?'on':'drop'));
       KINDS.forEach(([kind])=>Sync.base.child(kind).on('value',
         snap=>Sync.applyRemote(kind,snap.val()||{})));
+      // 官方 LINE QR：全域設定，獨立同步到所有裝置
+      Sync.base.child('oaqr').on('value',s=>{
+        const v=s.val(); if(v==null||v===(IMG['oaqr']||'')) return;
+        IMG['oaqr']=v; saveImgs();
+        if(!$('#v-settings').classList.contains('hide')) renderSettings();
+      });
       Sync.flush();
+      // 本機已有 QR 但雲端還沒 → 補推上去
+      Sync.base.child('oaqr').once('value').then(s=>{
+        if(IMG['oaqr']&&!s.val()) Sync.base.child('oaqr').set(IMG['oaqr']).catch(()=>{});
+      });
     }catch(e){
       console.error(e); Sync.on=false;
       Sync.errMsg=fbHint(e); Sync.setStatus('err');
