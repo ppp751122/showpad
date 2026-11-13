@@ -349,6 +349,9 @@ table.prev td{padding:5px 8px;border:1px solid var(--chalk);white-space:nowrap}
 /* 表單類內容不要被拉太寬，維持好讀 */
 .admin .abody{max-width:600px;margin-left:auto;margin-right:auto}
 @media(min-width:900px){ main#v-settings{max-width:620px} }
+/* 設定頁底部留足空間，版本資訊不被導覽列/明細列蓋住 */
+main#v-settings{padding-bottom:calc(130px + var(--safe-b))}
+#appVer{padding-bottom:8px}
 /* 很窄的手機（≤360px）：避免數字與 chips 擠爆 */
 @media(max-width:360px){
   .hero .amt{font-size:32px}
@@ -626,7 +629,7 @@ details.evgrp summary{-webkit-tap-highlight-color:transparent}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-13c · 響應式版面(手機/平板/電腦)';
+const APP_VER='2026-11-13d · 設定頁版本不被底部列擋';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
