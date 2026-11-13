@@ -144,9 +144,8 @@ hr.rule{border:0;border-top:1px solid var(--chalk);margin:16px 0}
 .chip{flex:0 0 auto;padding:6px 13px;border-radius:999px;border:1px solid var(--chalk);
   background:#fff;font-size:13px;color:var(--ink-60);white-space:nowrap}
 .chip.on{background:var(--bot);border-color:var(--bot);color:#fff;font-weight:600}
-.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;padding:0 14px 12px}
-@media(min-width:560px){.grid{grid-template-columns:repeat(3,1fr)}}
-@media(min-width:820px){.grid{grid-template-columns:repeat(4,1fr)}}
+/* 商品格子：依容器寬度自動增減欄數（手機2欄、平板3-4欄、電腦5-6欄） */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:10px;padding:0 14px 12px}
 .tile{background:var(--card);border:1px solid var(--chalk);border-radius:var(--r);overflow:hidden;
   position:relative;display:flex;flex-direction:column;transition:border-color .12s,box-shadow .12s}
 .tile.on{border-color:var(--cop);box-shadow:0 0 0 1.5px var(--cop)}
@@ -334,15 +333,22 @@ table.prev td{padding:5px 8px;border:1px solid var(--chalk);white-space:nowrap}
 /* ---------- RWD：大螢幕置中、小螢幕防跑版 ---------- */
 /* 平板／桌機：內容置中。header（sticky）與 main 用 margin 置中；
    nav / 合計（fixed）用 left:50% + translateX 對齊。 */
+/* 平板 / 電腦：內容置中，寬度隨螢幕放寬（不再固定 600px 窄欄） */
 @media(min-width:600px){
+  :root{--appw:600px}
   body{background:#E7E4DB}
-  header,main{max-width:600px;margin-left:auto;margin-right:auto}
+  header,main{max-width:var(--appw);margin-left:auto;margin-right:auto}
   main{width:100%;background:var(--paper)}
   header{width:100%}
-  nav.tabs,.total{left:50%;right:auto;transform:translateX(-50%);width:100%;max-width:600px}
+  nav.tabs,.total{left:50%;right:auto;transform:translateX(-50%);width:100%;max-width:var(--appw)}
   .sheet{align-items:center;justify-content:center}
-  .sheet .panel{max-width:560px;border-radius:18px}
+  .sheet .panel{max-width:min(92vw,620px);border-radius:18px}
 }
+@media(min-width:900px){ :root{--appw:840px} }       /* iPad 橫向 */
+@media(min-width:1280px){ :root{--appw:960px} }      /* 電腦 */
+/* 表單類內容不要被拉太寬，維持好讀 */
+.admin .abody{max-width:600px;margin-left:auto;margin-right:auto}
+@media(min-width:900px){ main#v-settings{max-width:620px} }
 /* 很窄的手機（≤360px）：避免數字與 chips 擠爆 */
 @media(max-width:360px){
   .hero .amt{font-size:32px}
@@ -620,7 +626,7 @@ details.evgrp summary{-webkit-tap-highlight-color:transparent}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-13b · 訂單徽章只算目前檔·目前檔置頂';
+const APP_VER='2026-11-13c · 響應式版面(手機/平板/電腦)';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
