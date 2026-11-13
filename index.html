@@ -620,7 +620,7 @@ details.evgrp summary{-webkit-tap-highlight-color:transparent}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-13a · 修正同步卡住(events桶遺漏)';
+const APP_VER='2026-11-13b · 訂單徽章只算目前檔·目前檔置頂';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -1882,7 +1882,8 @@ function syncTotal(){
     +' / '+t.items+' 項';
   $('#totalBar').classList.toggle('show',view==='order'&&t.qty>0);
   const d=$('#ordDot');
-  d.classList.toggle('hide',S.orders.length===0); d.textContent=S.orders.length;
+  const oc=S.settings.curEvent?S.orders.filter(o=>o.eventId===S.settings.curEvent).length:S.orders.length;
+  d.classList.toggle('hide',oc===0); d.textContent=oc;
   $('#btnMe').textContent=S.settings.me||'未登入';
   if(view==='stock') renderStock();
 }
@@ -2480,7 +2481,12 @@ function renderOrders(){
   const byEv={};
   S.orders.forEach(o=>{ const k=o.eventId||'__none'; (byEv[k]=byEv[k]||[]).push(o); });
   const groups=Object.keys(byEv).map(k=>({k,ev:k==='__none'?null:eventOf(k)}));
-  const rank=x=>x.k==='__none'?2:(x.ev&&x.ev.status==='done'?1:0);
+  const rank=x=>{
+    if(x.k===S.settings.curEvent) return 0;              // 目前點單檔期固定最上
+    if(x.k==='__none') return 3;
+    if(x.ev&&x.ev.status==='done') return 2;             // 已歸檔排最後、預設折疊
+    return 1;                                             // 其他進行中
+  };
   groups.sort((a,b)=>{ const ra=rank(a),rb=rank(b); if(ra!==rb) return ra-rb;
     return (b.ev?(b.ev.ua||0):0)-(a.ev?(a.ev.ua||0):0); });
   $('#ordersList').innerHTML=groups.map(({k,ev})=>{
