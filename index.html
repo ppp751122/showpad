@@ -620,7 +620,7 @@ details.evgrp summary{-webkit-tap-highlight-color:transparent}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-10b · 官方LINE QR跨裝置同步';
+const APP_VER='2026-11-13a · 修正同步卡住(events桶遺漏)';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -3517,38 +3517,43 @@ const Sync={
   schedule(){ if(!Sync.on) return; clearTimeout(Sync.tmr); Sync.tmr=setTimeout(Sync.flush,400); },
   flush(){
     if(!Sync.on||Sync.applying||!Sync.base) return;
-    const upd={}; const now=Date.now();
+    const upd={}; const pend=[]; const now=Date.now();
     KINDS.forEach(([kind,kf])=>{
+      const last=Sync.last[kind]||(Sync.last[kind]={});   // 防呆：每個 kind 都要有桶(含 events)
       const cur={}; S[kind].forEach(r=>{ if(r[kf]!=null) cur[String(r[kf])]=r; });
       Object.keys(cur).forEach(k=>{
         const rec=Object.assign({},cur[k]); delete rec.ua;
         const body=stable(rec);
-        if(Sync.last[kind][k]!==body){
+        if(last[k]!==body){
           cur[k].ua=now;
           upd[kind+'/'+k]=scrub(Object.assign({},rec,{ua:now}));
-          Sync.last[kind][k]=body;
+          pend.push([kind,k,body]);
         }
       });
-      Object.keys(Sync.last[kind]).forEach(k=>{
-        if(!cur[k]&&Sync.last[kind][k]!=='__DEL__'){
+      Object.keys(last).forEach(k=>{
+        if(!cur[k]&&last[k]!=='__DEL__'){
           upd[kind+'/'+k]={del:true,ua:now};
-          Sync.last[kind][k]='__DEL__';
+          pend.push([kind,k,'__DEL__']);
         }
       });
     });
-    if(Object.keys(upd).length)
-      Sync.base.update(upd).catch(e=>{ console.error(e); Sync.setStatus('err'); });
+    if(!Object.keys(upd).length) return;
+    Sync.base.update(upd)
+      .then(()=>{ pend.forEach(([kind,k,b])=>{ (Sync.last[kind]||(Sync.last[kind]={}))[k]=b; }); })
+      .catch(e=>{ console.error(e); Sync.setStatus('err'); });   // 失敗不標記，下次自動重試
   },
   applyRemote(kind,data){
     const kf=kind==='products'?'code':'id';
+    const last=Sync.last[kind]||(Sync.last[kind]={});   // 防呆：每個 kind 都要有桶(含 events)
     Sync.applying=true;
     let changed=0;
+    try{
     Object.keys(data).forEach(k=>{
       const rem=data[k]||{};
       const idx=S[kind].findIndex(r=>String(r[kf])===k);
       if(rem.del){
         if(idx>=0){ S[kind].splice(idx,1); changed++; }
-        Sync.last[kind][k]='__DEL__'; return;
+        last[k]='__DEL__'; return;
       }
       const rec=Object.assign({},rem); delete rec.del;
       const rua=rec.ua||0; delete rec.ua;
@@ -3557,8 +3562,9 @@ const Sync={
       const body=stable(rec);            // 先算比對值，之後才附上 ua，避免推回雲端形成回音
       if(idx<0){ S[kind].push(Object.assign({},rec,{ua:rua})); changed++; }
       else if((S[kind][idx].ua||0)<rua){ S[kind][idx]=Object.assign({},rec,{ua:rua}); changed++; }
-      Sync.last[kind][k]=body;
+      last[k]=body;
     });
+    }catch(err){ console.error('applyRemote',kind,err); }
     Sync.applying=false;
     if(changed){ Store.set(KEY_MAIN,S); if(kind==='events') ensureCurEvent(); refreshAll(); }
   }
