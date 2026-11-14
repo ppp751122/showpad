@@ -629,7 +629,7 @@ details.evgrp summary{-webkit-tap-highlight-color:transparent}
 <div class="toast" id="toast"></div>
 <script>
 'use strict';
-const APP_VER='2026-11-13d · 設定頁版本不被底部列擋';
+const APP_VER='2026-11-14a · 先收雲端再推送(刪除不復活)';
 /* =====================================================================
    創二十有限公司 · 展場點單 v3
    單檔、離線可用。資料存在本機裝置；多台裝置請用「合併其他裝置」收攏。
@@ -3508,17 +3508,22 @@ const Sync={
       await firebase.auth().signInAnonymously();
       const db=firebase.database();
       Sync.base=db.ref('shows/'+String(S.settings.room).replace(/[.#$\[\]\/]/g,'_'));
-      Sync.on=true;
+      Sync.on=true; Sync.ready=false;
       db.ref('.info/connected').on('value',s=>Sync.setStatus(s.val()?'on':'drop'));
-      KINDS.forEach(([kind])=>Sync.base.child(kind).on('value',
-        snap=>Sync.applyRemote(kind,snap.val()||{})));
+      // 先收齊雲端初始狀態、套用完(含「已刪除」記號)，才允許推送，避免本機舊資料蓋掉雲端刪除
+      const got={};
+      const markReady=()=>{ if(Sync.ready) return; Sync.ready=true; refreshAll(); Sync.flush(); };
+      KINDS.forEach(([kind])=>Sync.base.child(kind).on('value',snap=>{
+        Sync.applyRemote(kind,snap.val()||{}); got[kind]=true;
+        if(KINDS.every(([k])=>got[k])) markReady();
+      }));
+      setTimeout(markReady,8000);   // 保險：8 秒內沒收齊也放行，避免永遠不推
       // 官方 LINE QR：全域設定，獨立同步到所有裝置
       Sync.base.child('oaqr').on('value',s=>{
         const v=s.val(); if(v==null||v===(IMG['oaqr']||'')) return;
         IMG['oaqr']=v; saveImgs();
         if(!$('#v-settings').classList.contains('hide')) renderSettings();
       });
-      Sync.flush();
       // 本機已有 QR 但雲端還沒 → 補推上去
       Sync.base.child('oaqr').once('value').then(s=>{
         if(IMG['oaqr']&&!s.val()) Sync.base.child('oaqr').set(IMG['oaqr']).catch(()=>{});
@@ -3531,7 +3536,7 @@ const Sync={
   },
   schedule(){ if(!Sync.on) return; clearTimeout(Sync.tmr); Sync.tmr=setTimeout(Sync.flush,400); },
   flush(){
-    if(!Sync.on||Sync.applying||!Sync.base) return;
+    if(!Sync.on||Sync.applying||!Sync.base||!Sync.ready) return;   // 收齊雲端初始狀態前不推送
     const upd={}; const pend=[]; const now=Date.now();
     KINDS.forEach(([kind,kf])=>{
       const last=Sync.last[kind]||(Sync.last[kind]={});   // 防呆：每個 kind 都要有桶(含 events)
